@@ -141,7 +141,7 @@ async function main() {
     process.on('SIGTERM', async () => { await cleanup(); process.exit(0); });
 
     if (args.prompt) {
-        // Non-interactive: run prompt and exit
+        // Non-interactive: run prompt and exit (no Ink — plain stdout)
         const outputFormat = args.outputFormat || 'text';
         const results = [];
 
@@ -172,9 +172,21 @@ async function main() {
 
         await cleanup();
     } else {
-        // Interactive REPL
-        const { startRepl } = await import('./ui/repl.mjs');
-        await startRepl(loop, settings);
+        // Interactive: use Ink React TUI
+        try {
+            const { startInkApp } = await import('./ui/app.mjs');
+            const inkInstance = startInkApp(loop, settings);
+
+            // Wait for Ink to exit (user pressed Ctrl+C or /quit)
+            await inkInstance.waitUntilExit();
+        } catch (err) {
+            // Fallback to readline REPL if Ink fails (e.g. no TTY, missing deps)
+            if (settings.debug) {
+                console.error(`Ink UI unavailable (${err.message}), falling back to readline REPL`);
+            }
+            const { startRepl } = await import('./ui/repl.mjs');
+            await startRepl(loop, settings);
+        }
         await cleanup();
     }
 }
