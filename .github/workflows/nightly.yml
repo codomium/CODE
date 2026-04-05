@@ -288,58 +288,8 @@ jobs:
 
             echo "::notice::Decompilation diff: +${ADDED} modules, -${REMOVED} modules, ~${CHANGED} changed, ${NEW_FUNCS} functions (was ${PREV_FUNCS}), +${NEW_EXPORTS} new exports"
 
-            # Generate markdown section from diff
-            python3 -c "
-import json, sys
-
-d = json.load(open('/tmp/decompile-diff.json'))
-s = d.get('summary', {})
-
-print('### Structural Diff (rudevolution decompilation)')
-print()
-print('| Metric | v${PREV} | v${NEW} | Delta |')
-print('|--------|---------|---------|-------|')
-print(f'| Modules | {s.get(\"prevModules\",\"?\")} | {s.get(\"newModules\",\"?\")} | {\"+\" if s.get(\"newModules\",0)>=s.get(\"prevModules\",0) else \"\"}{s.get(\"newModules\",0)-s.get(\"prevModules\",0)} |')
-print(f'| Functions | {s.get(\"prevFunctions\",\"?\")} | {s.get(\"newFunctions\",\"?\")} | {\"+\" if s.get(\"newFunctions\",0)>=s.get(\"prevFunctions\",0) else \"\"}{s.get(\"newFunctions\",0)-s.get(\"prevFunctions\",0)} |')
-print(f'| Classes | {s.get(\"prevClasses\",\"?\")} | {s.get(\"newClasses\",\"?\")} | {\"+\" if s.get(\"newClasses\",0)>=s.get(\"prevClasses\",0) else \"\"}{s.get(\"newClasses\",0)-s.get(\"prevClasses\",0)} |')
-print(f'| New exports | — | — | +{s.get(\"addedExportCount\",0)} |')
-print(f'| Removed exports | — | — | -{s.get(\"removedExportCount\",0)} |')
-print()
-
-added = d.get('addedModules', [])
-if added:
-    print('#### New Modules')
-    for m in added[:15]:
-        print(f'- **{m[\"name\"]}** ({m.get(\"functions\",0)} functions, {m.get(\"classes\",0)} classes)')
-    if len(added) > 15:
-        print(f'- ...and {len(added)-15} more')
-    print()
-
-removed = d.get('removedModules', [])
-if removed:
-    print('#### Removed Modules')
-    for m in removed[:10]:
-        print(f'- ~~{m[\"name\"]}~~ ({m.get(\"functions\",0)} functions)')
-    print()
-
-changed = d.get('changedModules', [])
-if changed:
-    print('#### Significantly Changed Modules')
-    for m in sorted(changed, key=lambda x: abs(x.get('sizeDelta',0)), reverse=True)[:15]:
-        delta = m.get('sizeDelta', 0)
-        sign = '+' if delta >= 0 else ''
-        print(f'- **{m[\"name\"]}**: {sign}{delta} bytes, {sign}{m.get(\"funcDelta\",0)} functions')
-    print()
-
-exports = d.get('addedExports', [])
-if exports:
-    print('#### New Exports')
-    for e in exports[:20]:
-        print(f'- \`{e}\`')
-    if len(exports) > 20:
-        print(f'- ...and {len(exports)-20} more')
-    print()
-" > /tmp/decompile-summary.md 2>/dev/null || echo "Decompile summary generation failed" > /tmp/decompile-summary.md
+            # Generate markdown summary from diff JSON
+            python3 scripts/format-diff-summary.py /tmp/decompile-diff.json "${PREV}" "${NEW}" > /tmp/decompile-summary.md 2>/dev/null || echo "> Decompile summary generation failed" > /tmp/decompile-summary.md
 
           else
             echo "::warning::Decompilation failed or returned empty"
