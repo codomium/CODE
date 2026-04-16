@@ -1,0 +1,122 @@
+{
+  "name": "open-claude-code",
+  "displayName": "Open Claude Code",
+  "description": "AI coding assistant powered by Claude — chat inside VSCode using the Open Claude Code agent loop",
+  "version": "1.0.0",
+  "publisher": "open-claude-code",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "keywords": [
+    "claude",
+    "ai",
+    "chat",
+    "coding assistant",
+    "anthropic"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "open-claude-code.claude",
+        "fullName": "Open Claude Code",
+        "name": "claude",
+        "description": "AI coding assistant powered by Claude. Ask about your code, run tools, edit files.",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "clear",
+            "description": "Clear conversation history and start a new session"
+          },
+          {
+            "name": "model",
+            "description": "Switch the model (e.g. @claude /model claude-opus-4-6)"
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "openClaudeCode.setApiKey",
+        "title": "Open Claude Code: Set API Key"
+      },
+      {
+        "command": "openClaudeCode.clearSession",
+        "title": "Open Claude Code: Clear Session"
+      },
+      {
+        "command": "openClaudeCode.showStatus",
+        "title": "Open Claude Code: Show Status"
+      }
+    ],
+    "configuration": {
+      "title": "Open Claude Code",
+      "properties": {
+        "openClaudeCode.model": {
+          "type": "string",
+          "default": "claude-sonnet-4-6",
+          "enum": [
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5",
+            "claude-opus-4-6",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gemini-2.0-flash"
+          ],
+          "description": "AI model to use for the chat participant"
+        },
+        "openClaudeCode.permissionMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "auto",
+            "plan",
+            "acceptEdits",
+            "bypassPermissions"
+          ],
+          "default": "default",
+          "enumDescriptions": [
+            "Ask for permission before each tool use",
+            "Automatically approve safe operations",
+            "Plan mode — read only, no file edits",
+            "Automatically accept file edits without asking",
+            "Bypass all permission checks"
+          ],
+          "description": "Permission mode for file and shell operations"
+        },
+        "openClaudeCode.maxTurns": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum agentic tool-use turns per chat request"
+        },
+        "openClaudeCode.showToolOutput": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show tool progress and results inline in chat"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "vsce package --no-dependencies",
+    "install-vsix": "code --install-extension open-claude-code-1.0.0.vsix"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^2.27.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codomium/CODE"
+  }
+}
