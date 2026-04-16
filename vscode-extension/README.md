@@ -11,7 +11,7 @@ Use **Open Claude Code** as a chatbot directly inside VSCode's built-in Chat pan
 - **Multi-provider** — Anthropic Claude, OpenAI GPT, Google Gemini (set the model in settings)
 - **Conversation memory** — history is maintained across turns in the same VSCode session
 - **Slash commands** — `/clear` to reset, `/model` to switch models mid-session
-- **Configurable permission mode** — control how agressively the agent modifies your files
+- **Configurable permission mode** — control how aggressively the agent modifies your files
 
 ---
 
