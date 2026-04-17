@@ -6,9 +6,6 @@ dist/
 build/
 *.tgz
 
-# VS Code extension packages
-*.vsix
-
 # Bundled v2 source (copied by prepackage script, not committed)
 vscode-extension/v2/
 

@@ -13,6 +13,7 @@
   <img alt="npm" src="https://img.shields.io/npm/v/@ruvnet/open-claude-code?style=flat-square&label=npm" />
   <img alt="License" src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" />
   <img alt="Nightly" src="https://img.shields.io/badge/nightly-verified_releases-brightgreen?style=flat-square" />
+  <img alt="VSCode" src="https://img.shields.io/badge/VSCode-extension-blue?style=flat-square&logo=visualstudiocode" />
 </p>
 
 > **Automated Nightly Releases** — Open Claude Code automatically detects new [Claude Code](https://www.npmjs.com/package/@anthropic-ai/claude-code) releases, runs 903+ tests to verify zero regressions, and publishes verified builds with AI-powered discovery analysis. See [Releases](https://github.com/ruvnet/open-claude-code/releases) | [ADR-001](docs/adr/ADR-001-nightly-verified-release-pipeline.md) | [pi.ruv.io](https://pi.ruv.io)
@@ -39,6 +40,46 @@ occ
 export ANTHROPIC_API_KEY=sk-ant-...
 npx @ruvnet/open-claude-code "what files are in this directory?"
 ```
+
+---
+
+## 🖥️ VSCode Extension
+
+A **Cursor-style AI coding assistant** built directly into VSCode — no terminal required.
+
+### Quick install (pre-built VSIX)
+
+The extension package is included in the repo and ready to install:
+
+```bash
+code --install-extension vscode-extension/open-claude-code-1.1.0.vsix
+```
+
+Or use **Extensions → … → Install from VSIX…** and pick the file from the `vscode-extension/` folder.
+
+### Build from source
+
+```bash
+cd vscode-extension
+npm install
+npm run package          # prepackage → package → postpackage
+code --install-extension open-claude-code-1.1.0.vsix
+```
+
+### Highlights
+
+- **Dedicated activity bar icon** — opens a full Cursor-style chat panel in the sidebar
+- **`@claude` chat participant** — access Claude directly from VS Code's built-in Chat panel
+- **Full tool access** — all 25+ agent tools (Read, Write, Edit, Bash, Glob, Grep, WebFetch, …)
+- **Rich markdown + syntax highlighting** — code blocks with copy & Apply-to-file buttons
+- **Streaming responses** — tokens arrive in real time with an animated cursor
+- **Tool visualization** — collapsible cards showing each tool execution and result
+- **`@file` context injection** — type `@filename` or click 📄 to add a file to the prompt
+- **Multi-provider** — Anthropic Claude, OpenAI GPT, Google Gemini, NVIDIA NIM
+- **Model & permission-mode selector** — switch model and mode directly from the UI
+- **Session stats** — token count, cost estimate, and elapsed time always visible
+
+See [`vscode-extension/README.md`](./vscode-extension/README.md) for the full setup and configuration guide.
 
 ---
 
@@ -301,7 +342,15 @@ AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... occ -m bedrock/claude-sonnet "he
 
 # Google Vertex
 GOOGLE_APPLICATION_CREDENTIALS=... occ -m vertex/claude-sonnet "hello"
+
+# NVIDIA NIM (kimi-k2.5, deepseek-r1, and other thinking models supported)
+NVIDIA_API_KEY=nvapi-... occ -m kimi-k2.5 "hello"
 ```
+
+> **Note — NVIDIA thinking models:** Models such as `kimi-k2.5` and `deepseek-r1` use
+> `chat_template_kwargs: {thinking: true}` and do not accept a `tools` array in the same
+> request. Open Claude Code automatically detects these models and omits tools from the
+> request, preventing the HTTP 400 error that previously made them unusable.
 
 ---
 
@@ -348,6 +397,33 @@ On March 31, 2026, Anthropic accidentally shipped source maps in the Claude Code
 ## ⚖️ Legal
 
 This is a **clean-room implementation** — no leaked source used. Architecture informed by analysis of the published npm package, legal under US DMCA §1201(f), EU Software Directive Art. 6, UK CDPA §50B.
+
+---
+
+## 🆕 What's New
+
+### v1.1.0 — VSCode Extension & Bug Fixes
+
+**VSCode Extension — Cursor-style sidebar panel** _(PR #2)_
+- New dedicated activity bar icon with a full-screen Cursor-style chat panel
+- Rich markdown rendering, syntax-highlighted code blocks, copy & Apply-to-file buttons
+- Streaming responses with animated cursor, tool visualization cards, extended thinking blocks
+- `@file` context injection, file picker, model/mode selector, session stats, and stop button
+- Pre-built VSIX committed to `vscode-extension/open-claude-code-1.1.0.vsix` — install with one command
+
+**VSCode Extension — `@claude` Chat Participant** _(PR #1)_
+- New `vscode-extension/` package exposing the `v2/src` agent loop as a native VSCode Chat participant
+- Long-lived `agent-bridge.mjs` subprocess keeps conversation history across turns
+- API key stored in VSCode `SecretStorage` — never written to disk in plaintext
+- `/clear` and `/model` slash commands; configurable permission mode, max turns, and tool visibility
+
+**Fix: NVIDIA NIM thinking models** _(PR #3)_
+- `kimi-k2.5`, `deepseek-r1`, and other NVIDIA thinking models no longer crash with HTTP 400
+- Tool array is now omitted for thinking models (the two parameters are mutually exclusive)
+- Clean system prompt (without tool descriptions) is used for thinking-model calls
+
+**VSCode extension package now tracked in git** _(PR #4)_
+- `*.vsix` removed from `.gitignore` — the built package lives at `vscode-extension/open-claude-code-1.1.0.vsix`
 
 ---
 
