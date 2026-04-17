@@ -4,7 +4,7 @@
  */
 import { streamResponse, accumulateStream } from './streaming.mjs';
 import { ContextManager } from './context-manager.mjs';
-import { buildSystemPrompt } from './system-prompt.mjs';
+import { buildSystemPrompt, buildWorkspaceSnapshot } from './system-prompt.mjs';
 import { isNvidiaModel } from './providers.mjs';
 import fs from 'fs';
 import path from 'path';
@@ -406,12 +406,18 @@ async function callNvidia(model, state, toolDefs, settings, stream) {
 
     // For thinking models the tool-list suffix in the system prompt would be
     // misleading (no tools are sent), so use the static prefix only.
+    // Additionally, inject a workspace file-tree snapshot so the model can
+    // reason about the project structure even without tool access.
     let systemPrompt = state.systemPrompt;
     if (supportsThinking) {
         if (!state.systemPromptStatic) {
             process.stderr.write('[open-claude-code] Warning: systemPromptStatic missing — falling back to full system prompt for ' + model + '\n');
         }
-        systemPrompt = state.systemPromptStatic || state.systemPrompt;
+        const base = state.systemPromptStatic || state.systemPrompt;
+        const snapshot = buildWorkspaceSnapshot(process.cwd());
+        systemPrompt = snapshot
+            ? base + '\n\n## Workspace file structure (read-only reference)\n\n```\n' + snapshot + '\n```'
+            : base;
     }
     const effectiveState = supportsThinking
         ? { ...state, systemPrompt }
