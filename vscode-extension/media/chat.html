@@ -60,14 +60,106 @@
 
   <!-- Messages -->
   <div id="messages">
-    <!-- Welcome screen -->
+    <!-- Welcome / onboarding screen -->
     <div id="welcome">
-      <div id="welcome-icon">✦</div>
-      <h2>Claude Code</h2>
-      <p>Your AI coding assistant. Ask questions, edit files, run commands, and more.</p>
-      <div class="welcome-tip">⌨ <strong>Enter</strong> to send · <strong>Shift+Enter</strong> for newline</div>
-      <div class="welcome-tip">@ mention files for context · /help for commands</div>
-    </div>
+
+      <!-- ── SETUP GUIDE (shown when no API key is configured) ──────────── -->
+      <div id="setup-guide" style="display:none">
+        <div class="setup-header">
+          <div class="setup-logo">✦</div>
+          <h2>Welcome to Claude Code</h2>
+          <p>Your AI coding assistant. Complete the steps below to get started.</p>
+        </div>
+
+        <!-- Step 1 -->
+        <div class="setup-step" id="step-1">
+          <div class="step-badge">1</div>
+          <div class="step-body">
+            <div class="step-title">Get an API key</div>
+            <div class="step-desc">Choose a provider and create a free or paid API key.</div>
+            <div class="provider-grid">
+              <a class="provider-card" href="https://console.anthropic.com/settings/keys" id="link-anthropic">
+                <span class="provider-icon">🤖</span>
+                <span class="provider-name">Anthropic</span>
+                <span class="provider-hint">claude-sonnet</span>
+              </a>
+              <a class="provider-card" href="https://platform.openai.com/api-keys" id="link-openai">
+                <span class="provider-icon">⚡</span>
+                <span class="provider-name">OpenAI</span>
+                <span class="provider-hint">gpt-4o</span>
+              </a>
+              <a class="provider-card" href="https://aistudio.google.com/app/apikey" id="link-google">
+                <span class="provider-icon">🔵</span>
+                <span class="provider-name">Google</span>
+                <span class="provider-hint">gemini-2.0</span>
+              </a>
+              <a class="provider-card" href="https://integrate.api.nvidia.com" id="link-nvidia">
+                <span class="provider-icon">🟩</span>
+                <span class="provider-name">NVIDIA</span>
+                <span class="provider-hint">kimi-k2.5</span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="setup-step" id="step-2">
+          <div class="step-badge">2</div>
+          <div class="step-body">
+            <div class="step-title">Add your API key to VS Code</div>
+            <div class="step-desc">
+              Click the button below or open the Command Palette
+              (<kbd>Ctrl+Shift+P</kbd> / <kbd>⌘+Shift+P</kbd>) and run
+              <strong>Open Claude Code: Set API Key</strong>.
+            </div>
+            <div class="setup-actions">
+              <button class="setup-btn primary" id="btn-set-key">🔑 Set API Key…</button>
+              <button class="setup-btn" id="btn-open-settings">⚙ Open Settings</button>
+            </div>
+            <div class="setup-note">
+              Alternatively, set an environment variable before launching VS Code:<br>
+              <code>export ANTHROPIC_API_KEY=sk-ant-...</code>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="setup-step" id="step-3">
+          <div class="step-badge">3</div>
+          <div class="step-body">
+            <div class="step-title">Start chatting</div>
+            <div class="step-desc">
+              Type a message in the box below and press <kbd>Enter</kbd>. Try:
+            </div>
+            <div class="example-prompts">
+              <div class="example-prompt" id="ex-1">explain this codebase</div>
+              <div class="example-prompt" id="ex-2">fix the bug in server.js</div>
+              <div class="example-prompt" id="ex-3">write unit tests for utils.ts</div>
+            </div>
+          </div>
+        </div>
+      </div><!-- /#setup-guide -->
+
+      <!-- ── NORMAL WELCOME (shown when API key is already configured) ──── -->
+      <div id="welcome-normal" style="display:none">
+        <div class="setup-logo">✦</div>
+        <h2>Claude Code</h2>
+        <p>Your AI coding assistant. Ask questions, edit files, run commands, and more.</p>
+        <div class="welcome-tips-grid">
+          <div class="welcome-tip"><span class="tip-key">Enter</span> send message</div>
+          <div class="welcome-tip"><span class="tip-key">Shift+Enter</span> newline</div>
+          <div class="welcome-tip"><span class="tip-key">@file</span> add file to context</div>
+          <div class="welcome-tip"><span class="tip-key">📄</span> pick file from workspace</div>
+        </div>
+        <div class="welcome-examples">
+          <div class="welcome-example-label">Try asking:</div>
+          <div class="example-prompt" id="ex-w-1">explain this codebase</div>
+          <div class="example-prompt" id="ex-w-2">fix the bug in server.js</div>
+          <div class="example-prompt" id="ex-w-3">write unit tests for utils.ts</div>
+        </div>
+      </div><!-- /#welcome-normal -->
+
+    </div><!-- /#welcome -->
   </div>
 
   <!-- Loading indicator -->

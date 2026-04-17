@@ -36,7 +36,21 @@ A **Cursor-style AI coding assistant** built directly into VSCode — no termina
 
 - **VSCode 1.90+** (Chat API required)
 - **Node.js 18+** on your PATH
-- An **API key** for the model provider you want to use (Anthropic, OpenAI, or Google)
+- An **API key** for at least one supported provider (Anthropic, OpenAI, Google, or NVIDIA)
+
+---
+
+## Quick Start (already have VSCode installed)
+
+1. **Install the extension** — load from VSIX or press F5 in the repo (see [Installation](#installation) below).
+2. **Open the chat panel** — click the **✦** icon in the Activity Bar (left sidebar).
+3. **Follow the setup guide** — the welcome screen walks you through getting and entering an API key.
+
+   Or run **Open Claude Code: Set API Key** from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
+
+4. **Start chatting** — type a message and press **Enter**.
+
+> The first time you send a message the extension starts a Node.js agent subprocess in your workspace directory. This may take a second or two.
 
 ---
 
@@ -70,13 +84,28 @@ A **Cursor-style AI coding assistant** built directly into VSCode — no termina
 
 ## Setup
 
-### Set your API key
+### API key — which provider?
 
-Run the command **Open Claude Code: Set API Key** from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
+| Provider | Where to get a key | Environment variable |
+|----------|--------------------|----------------------|
+| **Anthropic** (recommended) | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) | `ANTHROPIC_API_KEY` |
+| **OpenAI** | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | `OPENAI_API_KEY` |
+| **Google** | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) | `GOOGLE_API_KEY` or `GEMINI_API_KEY` |
+| **NVIDIA NIM** | [integrate.api.nvidia.com](https://integrate.api.nvidia.com) | `NVIDIA_API_KEY` |
+
+### Option 1 — Command Palette (recommended)
+
+Run **Open Claude Code: Set API Key** (`Ctrl+Shift+P` / `Cmd+Shift+P`).
 
 The key is stored securely in VSCode's [SecretStorage](https://code.visualstudio.com/api/references/vscode-api#SecretStorage) — it is never written to disk in plaintext.
 
-Alternatively, set the environment variable before launching VSCode:
+### Option 2 — VS Code Settings (NVIDIA key only)
+
+Open Settings (`Ctrl+,`), search for `openClaudeCode.nvidiaApiKey`, and paste your `nvapi-...` key.
+
+### Option 3 — Environment variable
+
+Set the variable before launching VSCode:
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 code .
@@ -136,6 +165,7 @@ Open **Settings** (`Ctrl+,`) and search for `openClaudeCode`:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `openClaudeCode.model` | `claude-sonnet-4-6` | AI model to use |
+| `openClaudeCode.nvidiaApiKey` | _(empty)_ | NVIDIA NIM API key (`nvapi-...`) |
 | `openClaudeCode.permissionMode` | `default` | How the agent handles file/shell permissions |
 | `openClaudeCode.maxTurns` | `20` | Maximum agentic tool-use turns per request |
 | `openClaudeCode.showToolOutput` | `true` | Show tool progress and results in chat |

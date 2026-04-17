@@ -738,11 +738,71 @@
                 if (modelSelect && msg.model) modelSelect.value = msg.model;
                 if (modeSelect && msg.mode) modeSelect.value = msg.mode;
                 updateStats();
+                showWelcome(!!msg.hasApiKey);
+                break;
+
+            case 'apiKeySet':
+                // Key was just saved — upgrade welcome screen without reload
+                showWelcome(true);
                 break;
 
             default:
                 break;
         }
+    });
+
+    // ── Welcome / onboarding ──────────────────────────────────────────────────
+    const setupGuideEl    = document.getElementById('setup-guide');
+    const welcomeNormalEl = document.getElementById('welcome-normal');
+
+    function showWelcome(hasKey) {
+        if (!setupGuideEl || !welcomeNormalEl) return;
+        if (hasKey) {
+            setupGuideEl.style.display = 'none';
+            welcomeNormalEl.style.display = 'flex';
+        } else {
+            setupGuideEl.style.display = 'flex';
+            welcomeNormalEl.style.display = 'none';
+        }
+    }
+
+    // Wire provider links to open in browser via extension
+    ['link-anthropic', 'link-openai', 'link-google', 'link-nvidia'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('click', (e) => {
+            e.preventDefault();
+            vscode.postMessage({ type: 'runCommand', command: 'vscode.open', args: [el.href] });
+        });
+    });
+
+    // "Set API Key" button in setup guide
+    const btnSetKey = document.getElementById('btn-set-key');
+    if (btnSetKey) {
+        btnSetKey.addEventListener('click', () => {
+            vscode.postMessage({ type: 'runCommand', command: 'openClaudeCode.setApiKey' });
+        });
+    }
+
+    // "Open Settings" button
+    const btnOpenSettings = document.getElementById('btn-open-settings');
+    if (btnOpenSettings) {
+        btnOpenSettings.addEventListener('click', () => {
+            vscode.postMessage({ type: 'runCommand', command: 'workbench.action.openSettings', args: ['openClaudeCode'] });
+        });
+    }
+
+    // Example prompts (setup guide + normal welcome) — click to fill input
+    ['ex-1','ex-2','ex-3','ex-w-1','ex-w-2','ex-w-3'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('click', () => {
+            if (inputEl) {
+                inputEl.value = el.textContent.trim();
+                inputEl.focus();
+                inputEl.dispatchEvent(new Event('input'));
+            }
+        });
     });
 
     // ── Loading / sending state ───────────────────────────────────────────────

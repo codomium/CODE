@@ -238,11 +238,28 @@ class ClaudeCodeViewProvider {
         switch (msg.type) {
             case 'ready': {
                 const config = vscode.workspace.getConfiguration('openClaudeCode');
+                const hasApiKey = !!(
+                    (await extensionContext.secrets.get('openClaudeCode.apiKey')) ||
+                    process.env.ANTHROPIC_API_KEY ||
+                    process.env.OPENAI_API_KEY ||
+                    process.env.GOOGLE_API_KEY ||
+                    process.env.GEMINI_API_KEY ||
+                    process.env.NVIDIA_API_KEY ||
+                    config.get('nvidiaApiKey')
+                );
                 this.postMessage({
                     type: 'initialized',
                     model: config.get('model') || 'claude-sonnet-4-6',
                     mode:  config.get('permissionMode') || 'default',
+                    hasApiKey,
                 });
+                break;
+            }
+
+            case 'runCommand': {
+                if (msg.command) {
+                    vscode.commands.executeCommand(msg.command, ...(msg.args || []));
+                }
                 break;
             }
 
@@ -575,15 +592,19 @@ function activate(context) {
     context.subscriptions.push(
         vscode.commands.registerCommand('openClaudeCode.setApiKey', async () => {
             const key = await vscode.window.showInputBox({
-                prompt: 'Enter your Anthropic API key (sk-ant-...)',
+                prompt: 'Enter your API key for Anthropic (sk-ant-...), OpenAI (sk-...) or any other provider',
                 password: true,
-                placeHolder: 'sk-ant-api03-...',
-                validateInput: (v) => v && v.startsWith('sk-ant-') ? null : 'Key should start with sk-ant-',
+                placeHolder: 'sk-ant-api03-... or sk-... or nvapi-...',
+                validateInput: (v) => (v && v.trim().length > 10) ? null : 'Please enter a valid API key',
             });
             if (key) {
-                await context.secrets.store('openClaudeCode.apiKey', key);
+                await context.secrets.store('openClaudeCode.apiKey', key.trim());
                 if (bridge) { bridge.dispose(); bridge = null; }
                 vscode.window.showInformationMessage('API key saved. Bridge will restart on next message.');
+                // Notify webview so it can hide the setup guide
+                if (viewProvider) {
+                    viewProvider.postMessage({ type: 'apiKeySet' });
+                }
             }
         })
     );
