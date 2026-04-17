@@ -595,7 +595,7 @@ function activate(context) {
                 prompt: 'Enter your API key for Anthropic (sk-ant-...), OpenAI (sk-...) or any other provider',
                 password: true,
                 placeHolder: 'sk-ant-api03-... or sk-... or nvapi-...',
-                validateInput: (v) => (v && v.trim().length > 10) ? null : 'Please enter a valid API key',
+                validateInput: (v) => (v && v.trim().length > 10) ? null : 'API key must be at least 10 characters (e.g. sk-ant-..., sk-..., nvapi-...)',
             });
             if (key) {
                 await context.secrets.store('openClaudeCode.apiKey', key.trim());
