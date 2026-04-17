@@ -102,6 +102,74 @@ html, body {
   color: var(--text);
 }
 .header-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+.header-btn.icon-only { padding: 3px 4px; }
+.header-btn.locked { color: var(--warning); border-color: rgba(220,220,170,0.4); }
+
+/* ---- Search bar ---- */
+#search-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+}
+#search-input {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 11px;
+  padding: 3px 7px;
+  outline: none;
+}
+#search-input:focus { border-color: var(--accent); }
+#search-count { font-size: 10px; color: var(--text-muted); white-space: nowrap; min-width: 48px; text-align: right; }
+.search-nav-btn, .search-close-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: var(--radius);
+  font-size: 10px;
+  transition: all 0.1s;
+}
+.search-nav-btn:hover, .search-close-btn:hover { background: var(--bg-input); color: var(--text); }
+
+/* Search highlights */
+.search-match { outline: 1px solid rgba(0,122,204,0.4); border-radius: 2px; }
+.search-match-current { outline: 2px solid var(--accent); background: rgba(0,122,204,0.12); border-radius: 2px; }
+
+/* ---- Context bar ---- */
+#context-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 10px 3px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+#context-bar-label { white-space: nowrap; }
+#context-bar-track {
+  flex: 1;
+  height: 3px;
+  background: var(--bg-input);
+  border-radius: 2px;
+  overflow: hidden;
+}
+#context-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--success);
+  transition: width 0.3s, background 0.3s;
+  width: 0%;
+}
 
 /* ---- Controls bar ---- */
 #controls {
@@ -446,7 +514,72 @@ select:focus { border-color: var(--accent); }
 .msg + .msg { margin-top: 6px; }
 
 /* User */
-.msg-user .msg-bubble {
+.msg-user .msg-meta {
+  align-self: flex-end;
+  font-size: 10px;
+  color: var(--text-muted);
+  padding-right: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.msg-edit-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 0 2px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.1s;
+  line-height: 1;
+}
+.msg-user:hover .msg-edit-btn { opacity: 1; }
+.msg-edit-btn:hover { color: var(--accent); }
+
+.msg-user-edit-area {
+  align-self: flex-end;
+  max-width: 92%;
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius) var(--radius-lg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 12px;
+  resize: none;
+  outline: none;
+  min-height: 60px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.msg-user-edit-actions {
+  align-self: flex-end;
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* Regenerate button on assistant messages */
+.msg-regen-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  margin-left: 2px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.msg-assistant:hover .msg-regen-btn { opacity: 1; }
+.msg-regen-btn:hover { background: var(--bg-input); border-color: var(--border); color: var(--accent); }
   background: var(--user-bg);
   border: 1px solid rgba(0,122,204,0.3);
   border-radius: var(--radius-lg) var(--radius-lg) var(--radius) var(--radius-lg);
@@ -986,7 +1119,94 @@ select:focus { border-color: var(--accent); }
   30% { transform: scale(1); opacity: 1; }
 }
 
-/* ---- Apply diff modal ---- */
+/* Drag-over state for input */
+#input-wrapper.drag-over {
+  border-color: var(--accent);
+  background: rgba(0,122,204,0.08);
+}
+
+/* Pinned context chip */
+.context-chip.pinned {
+  background: rgba(78,201,176,0.12);
+  border-color: rgba(78,201,176,0.35);
+  color: var(--success);
+}
+.pin-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0 1px;
+  line-height: 1;
+  font-size: 11px;
+  transition: color 0.1s;
+  opacity: 0;
+}
+.context-chip:hover .pin-btn { opacity: 1; }
+.pin-btn:hover { color: var(--success); }
+.context-chip.pinned .pin-btn { opacity: 1; color: var(--success); }
+
+/* Image paste chip preview */
+.img-chip img {
+  width: 20px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 3px;
+  margin-right: 2px;
+  vertical-align: middle;
+}
+
+/* ---- Diff view (apply modal) ---- */
+.diff-view {
+  font-family: var(--font-code);
+  font-size: 11px;
+  line-height: 1.6;
+  border-radius: var(--radius);
+  overflow: auto;
+  max-height: 55vh;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+}
+.diff-view pre {
+  margin: 0;
+  padding: 8px 0;
+  white-space: pre;
+}
+.diff-line {
+  display: block;
+  padding: 0 12px;
+  white-space: pre;
+}
+.diff-add    { background: rgba(78,201,176,0.12); color: var(--success); }
+.diff-remove { background: rgba(244,135,113,0.12); color: var(--error-text); text-decoration: line-through; opacity: 0.8; }
+.diff-equal  { color: var(--text-dim); }
+
+/* History item actions */
+.history-item { position: relative; }
+.history-item-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  align-self: flex-start;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.history-item:hover .history-item-actions { opacity: 1; }
+.history-item-meta { flex: 1; }
+.history-action-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: var(--radius);
+  font-size: 11px;
+  transition: all 0.1s;
+}
+.history-action-btn:hover { background: var(--bg-input); color: var(--text); }
+.history-delete-btn:hover { color: var(--error-text); }
+
+/* ---- Apply modal ---- */
 #apply-modal {
   position: fixed;
   inset: 0;
@@ -1124,6 +1344,7 @@ select:focus { border-color: var(--accent); }
   gap: 8px;
   font-size: 10px;
   color: var(--text-muted);
+  flex: 1;
 }
 .history-empty {
   text-align: center;
