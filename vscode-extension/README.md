@@ -70,7 +70,7 @@ A **Cursor-style AI coding assistant** built directly into VSCode — no termina
    ```
 3. Install it in VSCode:
    ```bash
-   code --install-extension open-claude-code-1.0.0.vsix
+   code --install-extension open-claude-code-1.1.0.vsix
    ```
    Or use **Extensions → … → Install from VSIX…** in the VSCode UI.
 
