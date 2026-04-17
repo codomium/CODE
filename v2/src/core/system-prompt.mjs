@@ -135,7 +135,7 @@ export function buildWorkspaceContent(cwd = process.cwd(), opts = {}) {
             let content = fs.readFileSync(abs, 'utf-8');
             const originalLength = content.length;
             if (originalLength > maxFileBytes) {
-                content = content.slice(0, maxFileBytes) + `\n… (truncated — ${originalLength - maxFileBytes} more bytes)`;
+                content = content.slice(0, maxFileBytes) + `\n... (truncated — ${originalLength - maxFileBytes} more bytes)`;
             }
             const contentLength = content.length;
             if (totalBytes + contentLength > maxTotalBytes) break;
@@ -151,8 +151,8 @@ export function buildWorkspaceContent(cwd = process.cwd(), opts = {}) {
         parts.push('## Workspace file structure\n\n```\n' + tree + '\n```');
     }
 
-    for (const { path: rel, content } of files) {
-        parts.push(`## File: ${rel}\n\n\`\`\`\n${content}\n\`\`\``);
+    for (const { path: filePath, content } of files) {
+        parts.push(`## File: ${filePath}\n\n\`\`\`\n${content}\n\`\`\``);
     }
 
     return {
