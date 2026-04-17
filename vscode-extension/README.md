@@ -6,6 +6,11 @@ A **Cursor-style AI coding assistant** built directly into VSCode — no termina
 
 ## Features
 
+### 🗂️ Proactive workspace analysis (new in v1.2)
+- **Automatic workspace exploration** — before answering questions the agent scans your project with LS, Glob, Read, and Grep instead of asking you to paste code
+- **Workspace file tree injection for thinking models** — Kimi K2.5 and DeepSeek R1 receive a compact file-tree snapshot in their system prompt so they know your project layout even though NVIDIA NIM prevents live tool calls during thinking
+- **Never "I can't see your files"** — the system prompt explicitly forbids asking you to share code; the agent reads files directly
+
 ### 🖥️ Cursor-style Sidebar Panel (new in v1.1)
 - **Dedicated activity bar icon** — opens a full chat panel in the VS Code sidebar
 - **Rich markdown rendering** — headers, tables, bold/italic, blockquotes
@@ -25,7 +30,7 @@ A **Cursor-style AI coding assistant** built directly into VSCode — no termina
 ### 💬 `@claude` Chat Participant (VSCode built-in chat)
 - Ask questions, request code changes, and run agentic tools without leaving the editor
 - **Full tool access** — the same 25+ tools as the CLI (Read, Write, Edit, Bash, Glob, Grep, WebFetch, …)
-- **Multi-provider** — Anthropic Claude, OpenAI GPT, Google Gemini
+- **Multi-provider** — Anthropic Claude, OpenAI GPT, Google Gemini, NVIDIA NIM
 - **Conversation memory** — history is maintained across turns in the same VS Code session
 - **Slash commands** — `/clear` to reset, `/model` to switch models mid-session
 - **Configurable permission mode** — control how aggressively the agent modifies your files
@@ -72,7 +77,7 @@ A **Cursor-style AI coding assistant** built directly into VSCode — no termina
    extension bundle so all functionality is available after installation.
 3. Install it in VSCode:
    ```bash
-   code --install-extension open-claude-code-1.1.0.vsix
+   code --install-extension open-claude-code-1.2.0.vsix
    ```
    Or use **Extensions → … → Install from VSIX…** in the VSCode UI.
 
@@ -209,6 +214,18 @@ The extension spawns **`agent-bridge.mjs`** as a long-lived Node.js subprocess i
 ```
 
 The subprocess persists across chat turns so the agent's conversation history is maintained.  Clicking **New** (or running the **Clear Session** command) resets the history.
+
+---
+
+### NVIDIA thinking models (Kimi K2.5, DeepSeek R1)
+
+NVIDIA NIM rejects requests that combine `chat_template_kwargs.thinking` with a tools array, so these models cannot make live tool calls. Open Claude Code works around this automatically:
+
+- The agent omits tools from the request (preventing the HTTP 400 error)
+- A compact workspace file tree is appended to the system prompt so the model knows your project layout without needing live tool access
+- The system prompt instructs the model to reason about files by path rather than asking you to paste them
+
+To use a thinking model, select **moonshotai/kimi-k2.5** or **deepseek-ai/deepseek-r1** from the Model dropdown and enter your `NVIDIA_API_KEY` in Settings.
 
 ---
 
