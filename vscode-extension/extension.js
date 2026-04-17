@@ -344,6 +344,47 @@ class ClaudeCodeViewProvider {
                 break;
             }
 
+            case 'saveSession': {
+                if (msg.messages && msg.messages.length > 0) {
+                    const sessions = this._context.globalState.get('openClaudeCode.chatHistory', []);
+                    const firstUser = msg.messages.find(m => m.type === 'user');
+                    const title = firstUser
+                        ? firstUser.text.slice(0, 80).replace(/\n/g, ' ')
+                        : 'Untitled conversation';
+                    sessions.unshift({
+                        id: Date.now().toString(),
+                        title,
+                        createdAt: Date.now(),
+                        messages: msg.messages,
+                    });
+                    // Keep the 30 most recent sessions
+                    if (sessions.length > 30) sessions.length = 30;
+                    await this._context.globalState.update('openClaudeCode.chatHistory', sessions);
+                }
+                break;
+            }
+
+            case 'getHistory': {
+                const sessions = this._context.globalState.get('openClaudeCode.chatHistory', []);
+                const sessionList = sessions.map(s => ({
+                    id: s.id,
+                    title: s.title,
+                    createdAt: s.createdAt,
+                    messageCount: s.messages ? s.messages.length : 0,
+                }));
+                this.postMessage({ type: 'historyData', sessions: sessionList });
+                break;
+            }
+
+            case 'loadSession': {
+                const sessions = this._context.globalState.get('openClaudeCode.chatHistory', []);
+                const session = sessions.find(s => s.id === msg.id);
+                if (session) {
+                    this.postMessage({ type: 'sessionData', messages: session.messages || [] });
+                }
+                break;
+            }
+
             default:
                 break;
         }

@@ -28,6 +28,7 @@
     let currentModel = '';
     let pendingApply = null;     // { code, language }
     let activeToolCards = {};    // toolName -> dom element
+    let sessionMessages = [];    // tracked messages for history saving
 
     // ── DOM refs ─────────────────────────────────────────────────────────────
     const messagesEl   = document.getElementById('messages');
@@ -55,6 +56,14 @@
     const thinkingToggleEl      = document.getElementById('thinking-toggle');
     const thinkingToggleWrapper = document.getElementById('thinking-toggle-wrapper');
     const thinkingLabelEl       = document.getElementById('thinking-label');
+    const settingsBtn   = document.getElementById('settings-btn');
+    const historyBtn    = document.getElementById('history-btn');
+    const historyPanel  = document.getElementById('history-panel');
+    const historyList   = document.getElementById('history-list');
+    const historySessionView = document.getElementById('history-session-view');
+    const historyCloseBtn = document.getElementById('history-close-btn');
+    const historyBackBtn  = document.getElementById('history-back-btn');
+    const historyPanelTitle = document.getElementById('history-panel-title');
 
     /** Models that support NVIDIA thinking mode toggle */
     const THINKING_CAPABLE_MODELS = new Set([
@@ -432,6 +441,26 @@
         });
     }
 
+    // ── Copy button helper ────────────────────────────────────────────────────
+    function addCopyButtonToMessage(msgDiv, rawText) {
+        const header = msgDiv.querySelector('.msg-header');
+        if (!header || header.querySelector('.msg-copy-btn')) return;
+        const btn = document.createElement('button');
+        btn.className = 'msg-copy-btn';
+        btn.title = 'Copy answer';
+        btn.textContent = '⎘ Copy';
+        btn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'copyToClipboard', text: rawText });
+            btn.textContent = '✓ Copied';
+            btn.classList.add('copied');
+            setTimeout(() => {
+                btn.textContent = '⎘ Copy';
+                btn.classList.remove('copied');
+            }, 1500);
+        });
+        header.appendChild(btn);
+    }
+
     // ── Message rendering ─────────────────────────────────────────────────────
     function hideWelcome() {
         if (welcomeEl && !welcomeEl.classList.contains('hidden')) {
@@ -448,6 +477,7 @@
     function addUserMessage(text) {
         hideWelcome();
         currentStreamMsg = null;
+        sessionMessages.push({ type: 'user', text });
         const div = document.createElement('div');
         div.className = 'msg msg-user';
         div.innerHTML = `
@@ -500,6 +530,12 @@
             currentStreamMsg.innerHTML = raw ? renderMarkdown(raw) : '';
             currentStreamMsg.classList.remove('streaming-cursor');
             currentStreamMsg._rawText = '';
+            // Add copy button + track in history
+            if (raw) {
+                const msgDiv = currentStreamMsg.closest('.msg-assistant');
+                if (msgDiv) addCopyButtonToMessage(msgDiv, raw);
+                sessionMessages.push({ type: 'assistant', text: raw });
+            }
             currentStreamMsg = null;
         } else if (content) {
             hideWelcome();
@@ -512,6 +548,8 @@
                 </div>
                 <div class="msg-content">${renderMarkdown(content)}</div>
             `;
+            addCopyButtonToMessage(div, content);
+            sessionMessages.push({ type: 'assistant', text: content });
             messagesEl.appendChild(div);
         }
         scrollToBottom();
@@ -732,10 +770,19 @@
                 if (welcomeEl) welcomeEl.classList.remove('hidden');
                 currentStreamMsg = null;
                 activeToolCards = {};
+                sessionMessages = [];
                 tokenStats = { input: 0, output: 0 };
                 costTotal = 0;
                 startTime = Date.now();
                 updateStats();
+                break;
+
+            case 'historyData':
+                renderHistoryList(msg.sessions || []);
+                break;
+
+            case 'sessionData':
+                renderHistorySession(msg.messages || []);
                 break;
 
             case 'fileContent':
@@ -1033,9 +1080,112 @@
         vscode.postMessage({ type: 'addContextFile', path: file.path, name: file.name });
     }
 
+    // ── History Panel ─────────────────────────────────────────────────────────
+    function openHistoryPanel() {
+        if (historyPanel) historyPanel.classList.add('visible');
+        if (historySessionView) historySessionView.classList.remove('visible');
+        if (historyList) historyList.style.display = '';
+        if (historyBackBtn) historyBackBtn.style.display = 'none';
+        if (historyPanelTitle) historyPanelTitle.textContent = 'Chat History';
+        vscode.postMessage({ type: 'getHistory' });
+    }
+
+    function closeHistoryPanel() {
+        if (historyPanel) historyPanel.classList.remove('visible');
+    }
+
+    function renderHistoryList(sessions) {
+        if (!historyList) return;
+        historyList.innerHTML = '';
+        if (sessions.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'history-empty';
+            empty.textContent = 'No saved conversations yet.\nStart a new chat and click "New" to save it to history.';
+            historyList.appendChild(empty);
+            return;
+        }
+        for (const session of sessions) {
+            const item = document.createElement('div');
+            item.className = 'history-item';
+
+            const titleEl = document.createElement('div');
+            titleEl.className = 'history-item-title';
+            titleEl.textContent = session.title || 'Untitled conversation';
+
+            const metaEl = document.createElement('div');
+            metaEl.className = 'history-item-meta';
+            const dateEl = document.createElement('span');
+            dateEl.textContent = new Date(session.createdAt).toLocaleString();
+            const countEl = document.createElement('span');
+            const msgCount = session.messageCount || 0;
+            countEl.textContent = `${msgCount} msg${msgCount !== 1 ? 's' : ''}`;
+            metaEl.appendChild(dateEl);
+            metaEl.appendChild(countEl);
+
+            item.appendChild(titleEl);
+            item.appendChild(metaEl);
+            item.addEventListener('click', () => {
+                vscode.postMessage({ type: 'loadSession', id: session.id });
+            });
+            historyList.appendChild(item);
+        }
+    }
+
+    function renderHistorySession(messages) {
+        if (!historySessionView) return;
+        historySessionView.innerHTML = '';
+
+        for (const m of messages) {
+            if (m.type === 'user') {
+                const div = document.createElement('div');
+                div.className = 'msg msg-user';
+                div.innerHTML = `
+                    <div class="msg-meta">You</div>
+                    <div class="msg-bubble">${escapeHtml(m.text)}</div>
+                `;
+                historySessionView.appendChild(div);
+            } else if (m.type === 'assistant') {
+                const div = document.createElement('div');
+                div.className = 'msg msg-assistant';
+                div.innerHTML = `
+                    <div class="msg-header">
+                        <div class="msg-avatar">✦</div>
+                        <span class="msg-name">Claude</span>
+                    </div>
+                    <div class="msg-content">${renderMarkdown(m.text)}</div>
+                `;
+                addCopyButtonToMessage(div, m.text);
+                historySessionView.appendChild(div);
+            }
+        }
+
+        // Show session view, hide list
+        if (historyList) historyList.style.display = 'none';
+        historySessionView.classList.add('visible');
+        if (historyBackBtn) historyBackBtn.style.display = '';
+        if (historyPanelTitle) historyPanelTitle.textContent = 'Past Conversation';
+        historySessionView.scrollTop = 0;
+    }
+
+    if (historyBtn) historyBtn.addEventListener('click', openHistoryPanel);
+    if (historyCloseBtn) historyCloseBtn.addEventListener('click', closeHistoryPanel);
+    if (historyBackBtn) {
+        historyBackBtn.addEventListener('click', () => {
+            if (historySessionView) historySessionView.classList.remove('visible');
+            if (historyList) historyList.style.display = '';
+            if (historyBackBtn) historyBackBtn.style.display = 'none';
+            if (historyPanelTitle) historyPanelTitle.textContent = 'Chat History';
+        });
+    }
+
     // ── Toolbar buttons ───────────────────────────────────────────────────────
     if (newChatBtn) {
         newChatBtn.addEventListener('click', () => {
+            // Save current session to history before clearing
+            if (sessionMessages.length > 0) {
+                vscode.postMessage({ type: 'saveSession', messages: [...sessionMessages] });
+                sessionMessages = [];
+            }
             vscode.postMessage({ type: 'clear' });
         });
     }
@@ -1043,6 +1193,12 @@
     if (addFileBtn) {
         addFileBtn.addEventListener('click', () => {
             vscode.postMessage({ type: 'pickFile' });
+        });
+    }
+
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'runCommand', command: 'workbench.action.openSettings', args: ['openClaudeCode'] });
         });
     }
 
