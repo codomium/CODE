@@ -133,12 +133,14 @@ export function buildWorkspaceContent(cwd = process.cwd(), opts = {}) {
             const stat = fs.statSync(abs);
             if (!stat.isFile()) continue;
             let content = fs.readFileSync(abs, 'utf-8');
-            const truncated = content.length > maxFileBytes;
-            if (truncated) {
-                content = content.slice(0, maxFileBytes) + `\n… (truncated — ${content.length - maxFileBytes} more bytes)`;
+            const originalLength = content.length;
+            if (originalLength > maxFileBytes) {
+                content = content.slice(0, maxFileBytes) + `\n… (truncated — ${originalLength - maxFileBytes} more bytes)`;
             }
+            const contentLength = content.length;
+            if (totalBytes + contentLength > maxTotalBytes) break;
             files.push({ path: rel, content });
-            totalBytes += content.length;
+            totalBytes += contentLength;
         } catch { /* skip unreadable */ }
     }
 
