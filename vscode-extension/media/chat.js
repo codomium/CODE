@@ -1291,7 +1291,10 @@
 
             if (f.isImage && f.dataUrl) {
                 const img = document.createElement('img');
-                img.src = f.dataUrl;
+                // dataUrl is always a data: URI from FileReader.readAsDataURL — validate before use
+                if (/^data:image\/[a-z]+;base64,/.test(f.dataUrl)) {
+                    img.src = f.dataUrl;
+                }
                 img.alt = f.name;
                 chip.appendChild(img);
             }
