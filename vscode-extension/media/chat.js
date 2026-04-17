@@ -333,47 +333,40 @@
         const displayLang = lang || 'code';
         // Store code in JS Map, not in DOM attribute
         codeStore.set(id, { code, language: lang || '' });
-        return `<div class="code-block" id="${id}" data-lang="${escapeHtml(lang || '')}">
+        // Use data-block-id for event delegation; no inline onclick
+        return `<div class="code-block" id="${id}" data-block-id="${id}" data-lang="${escapeHtml(lang || '')}">
   <div class="code-header">
     <span class="code-lang">${escapeHtml(displayLang)}</span>
     <div class="code-actions">
-      <button class="code-btn copy-btn" onclick="copyCode('${id}')">Copy</button>
-      <button class="code-btn apply-btn" onclick="applyCode('${id}')">Apply to file…</button>
+      <button class="code-btn copy-btn" data-action="copy" data-block-id="${id}">Copy</button>
+      <button class="code-btn apply-btn" data-action="apply" data-block-id="${id}">Apply to file…</button>
     </div>
   </div>
   <pre><code>${highlighted}</code></pre>
 </div>`;
     }
 
-    // ── Exposed to onclick handlers ──────────────────────────────────────────
-    window.copyCode = function (id) {
-        const entry = codeStore.get(id);
-        if (!entry) return;
-        vscode.postMessage({ type: 'copyToClipboard', text: entry.code });
-        const el = document.getElementById(id);
-        const btn = el && el.querySelector('.copy-btn');
-        if (btn) {
+    // ── Event delegation for code block buttons ───────────────────────────────
+    // (replaces window.copyCode / window.applyCode inline onclick handlers)
+    messagesEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        const action = btn.dataset.action;
+        const blockId = btn.dataset.blockId;
+        if (!blockId) return;
+        if (action === 'copy') {
+            const entry = codeStore.get(blockId);
+            if (!entry) return;
+            vscode.postMessage({ type: 'copyToClipboard', text: entry.code });
             btn.textContent = 'Copied!';
             setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+        } else if (action === 'apply') {
+            const entry = codeStore.get(blockId);
+            if (!entry) return;
+            pendingApply = { code: entry.code, language: entry.language };
+            showApplyModal(entry.code);
         }
-    };
-
-    window.applyCode = function (id) {
-        const entry = codeStore.get(id);
-        if (!entry) return;
-        pendingApply = { code: entry.code, language: entry.language };
-        showApplyModal(entry.code);
-    };
-
-    window.toggleToolCard = function (id) {
-        const el = document.getElementById(id);
-        if (el) el.classList.toggle('expanded');
-    };
-
-    window.toggleThinking = function (id) {
-        const el = document.getElementById(id);
-        if (el) el.classList.toggle('expanded');
-    };
+    });
 
     function decodeHtmlEntities(str) {
         // Manually reverse only the escapes produced by escapeHtml()
@@ -386,17 +379,24 @@
     }
 
     // ── Apply Modal ───────────────────────────────────────────────────────────
+    function cancelApply() {
+        applyModal.classList.remove('visible');
+        pendingApply = null;
+    }
+
     function showApplyModal(code) {
         const preview = code.length > 2000 ? code.slice(0, 2000) + '\n…' : code;
         applyModalBody.innerHTML = buildCodeBlockHtml(preview, pendingApply.language);
         applyModal.classList.add('visible');
     }
 
+    const applyCancelTopBtn = document.getElementById('apply-cancel-top');
+    if (applyCancelTopBtn) {
+        applyCancelTopBtn.addEventListener('click', cancelApply);
+    }
+
     if (applyCancelBtn) {
-        applyCancelBtn.addEventListener('click', () => {
-            applyModal.classList.remove('visible');
-            pendingApply = null;
-        });
+        applyCancelBtn.addEventListener('click', cancelApply);
     }
 
     if (applyConfirmBtn) {
@@ -407,8 +407,7 @@
                 code: pendingApply.code,
                 language: pendingApply.language,
             });
-            applyModal.classList.remove('visible');
-            pendingApply = null;
+            cancelApply();
         });
     }
 
@@ -420,8 +419,7 @@
                 code: pendingApply.code,
                 language: pendingApply.language,
             });
-            applyModal.classList.remove('visible');
-            pendingApply = null;
+            cancelApply();
         });
     }
 
@@ -602,19 +600,37 @@
     function addThinkingBlock(text) {
         hideWelcome();
         const id = `think-${++thinkingCounter}`;
-        const div = document.createElement('div');
-        div.className = 'msg';
-        div.innerHTML = `
-            <div class="msg-thinking" id="${id}">
-                <div class="msg-thinking-header" onclick="toggleThinking('${id}')">
-                    <span>💭</span>
-                    <span>Extended thinking</span>
-                    <span style="margin-left:auto;font-size:10px">click to expand</span>
-                </div>
-                <div class="msg-thinking-body">${escapeHtml(text || '')}</div>
-            </div>
-        `;
-        messagesEl.appendChild(div);
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'msg';
+
+        const thinkEl = document.createElement('div');
+        thinkEl.className = 'msg-thinking';
+        thinkEl.id = id;
+
+        const headerEl = document.createElement('div');
+        headerEl.className = 'msg-thinking-header';
+        headerEl.addEventListener('click', () => thinkEl.classList.toggle('expanded'));
+
+        const bubbleIcon = document.createElement('span');
+        bubbleIcon.textContent = '💭';
+        const label = document.createElement('span');
+        label.textContent = 'Extended thinking';
+        const hint = document.createElement('span');
+        hint.style.cssText = 'margin-left:auto;font-size:10px';
+        hint.textContent = 'click to expand';
+
+        headerEl.appendChild(bubbleIcon);
+        headerEl.appendChild(label);
+        headerEl.appendChild(hint);
+
+        const bodyEl = document.createElement('div');
+        bodyEl.className = 'msg-thinking-body';
+        bodyEl.textContent = text || '';           // safe — textContent
+
+        thinkEl.appendChild(headerEl);
+        thinkEl.appendChild(bodyEl);
+        msgDiv.appendChild(thinkEl);
+        messagesEl.appendChild(msgDiv);
         scrollToBottom();
     }
 

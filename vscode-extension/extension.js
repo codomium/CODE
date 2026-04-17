@@ -189,9 +189,7 @@ async function getBridge() {
     env.CLAUDE_CODE_PERMISSION_MODE  = permissionMode;
     env.CLAUDE_CODE_MAX_TURNS        = String(config.get('maxTurns') || 20);
 
-    const cwd = (vscode.workspace.workspaceFolders &&
-        vscode.workspace.workspaceFolders[0] &&
-        vscode.workspace.workspaceFolders[0].uri.fsPath) || process.cwd();
+    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
 
     bridge = new AgentBridge(cwd, env);
     bridge.start();
@@ -329,9 +327,7 @@ class ClaudeCodeViewProvider {
         // Inject context file contents
         const allPaths = new Set(contextFilePaths || []);
         if (fileRefs && fileRefs.length > 0) {
-            const ws = vscode.workspace.workspaceFolders &&
-                vscode.workspace.workspaceFolders[0] &&
-                vscode.workspace.workspaceFolders[0].uri.fsPath;
+            const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (ws) {
                 for (const ref of fileRefs) {
                     const abs = path.resolve(ws, ref);
