@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!--CSP_PLACEHOLDER-->
+  <title>Claude Code</title>
+  <link rel="stylesheet" href="<!--CSS_URI-->">
+</head>
+<body>
+<div id="app">
+
+  <!-- Header -->
+  <div id="header">
+    <span id="header-title">✦ Claude Code</span>
+    <div id="header-spacer"></div>
+    <button class="header-btn" id="new-chat-btn" title="New conversation">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/>
+      </svg>
+      New
+    </button>
+  </div>
+
+  <!-- Controls bar -->
+  <div id="controls">
+    <span class="control-label">Model</span>
+    <select id="model-select">
+      <optgroup label="Anthropic">
+        <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+        <option value="claude-opus-4-6">Opus 4.6</option>
+        <option value="claude-haiku-4-5">Haiku 4.5</option>
+      </optgroup>
+      <optgroup label="OpenAI">
+        <option value="gpt-4o">GPT-4o</option>
+        <option value="gpt-4o-mini">GPT-4o-mini</option>
+      </optgroup>
+      <optgroup label="Google">
+        <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+      </optgroup>
+      <optgroup label="NVIDIA NIM">
+        <option value="moonshotai/kimi-k2.5">Kimi K2.5 ✦</option>
+        <option value="nvidia/llama-3.1-nemotron-70b-instruct">Nemotron 70B</option>
+        <option value="meta/llama-3.1-405b-instruct">Llama 3.1 405B</option>
+        <option value="meta/llama-3.3-70b-instruct">Llama 3.3 70B</option>
+        <option value="mistralai/mistral-large-2-instruct">Mistral Large 2</option>
+        <option value="mistralai/mixtral-8x22b-instruct-v0.1">Mixtral 8x22B</option>
+        <option value="deepseek-ai/deepseek-r1">DeepSeek R1 ✦</option>
+      </optgroup>
+    </select>
+    <span class="control-label" style="margin-left:6px">Mode</span>
+    <select id="mode-select">
+      <option value="default">default</option>
+      <option value="auto">auto</option>
+      <option value="plan">plan</option>
+      <option value="acceptEdits">acceptEdits</option>
+      <option value="bypassPermissions">bypass</option>
+    </select>
+  </div>
+
+  <!-- Messages -->
+  <div id="messages">
+    <!-- Welcome / onboarding screen -->
+    <div id="welcome">
+
+      <!-- ── SETUP GUIDE (shown when no API key is configured) ──────────── -->
+      <div id="setup-guide" style="display:none">
+        <div class="setup-header">
+          <div class="setup-logo">✦</div>
+          <h2>Welcome to Claude Code</h2>
+          <p>Your AI coding assistant. Complete the steps below to get started.</p>
+        </div>
+
+        <!-- Step 1 -->
+        <div class="setup-step" id="step-1">
+          <div class="step-badge">1</div>
+          <div class="step-body">
+            <div class="step-title">Get an API key</div>
+            <div class="step-desc">Choose a provider and create a free or paid API key.</div>
+            <div class="provider-grid">
+              <a class="provider-card" href="https://console.anthropic.com/settings/keys" id="link-anthropic">
+                <span class="provider-icon">🤖</span>
+                <span class="provider-name">Anthropic</span>
+                <span class="provider-hint">claude-sonnet</span>
+              </a>
+              <a class="provider-card" href="https://platform.openai.com/api-keys" id="link-openai">
+                <span class="provider-icon">⚡</span>
+                <span class="provider-name">OpenAI</span>
+                <span class="provider-hint">gpt-4o</span>
+              </a>
+              <a class="provider-card" href="https://aistudio.google.com/app/apikey" id="link-google">
+                <span class="provider-icon">🔵</span>
+                <span class="provider-name">Google</span>
+                <span class="provider-hint">gemini-2.0</span>
+              </a>
+              <a class="provider-card" href="https://integrate.api.nvidia.com" id="link-nvidia">
+                <span class="provider-icon">🟩</span>
+                <span class="provider-name">NVIDIA</span>
+                <span class="provider-hint">kimi-k2.5</span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="setup-step" id="step-2">
+          <div class="step-badge">2</div>
+          <div class="step-body">
+            <div class="step-title">Add your API key to VS Code</div>
+            <div class="step-desc">
+              Click the button below or open the Command Palette
+              (<kbd>Ctrl+Shift+P</kbd> / <kbd>⌘+Shift+P</kbd>) and run
+              <strong>Open Claude Code: Set API Key</strong>.
+            </div>
+            <div class="setup-actions">
+              <button class="setup-btn primary" id="btn-set-key">🔑 Set API Key…</button>
+              <button class="setup-btn" id="btn-open-settings">⚙ Open Settings</button>
+            </div>
+            <div class="setup-note">
+              Alternatively, set an environment variable before launching VS Code:<br>
+              <code>export ANTHROPIC_API_KEY=sk-ant-...</code>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="setup-step" id="step-3">
+          <div class="step-badge">3</div>
+          <div class="step-body">
+            <div class="step-title">Start chatting</div>
+            <div class="step-desc">
+              Type a message in the box below and press <kbd>Enter</kbd>. Try:
+            </div>
+            <div class="example-prompts">
+              <div class="example-prompt" id="ex-1">explain this codebase</div>
+              <div class="example-prompt" id="ex-2">fix the bug in server.js</div>
+              <div class="example-prompt" id="ex-3">write unit tests for utils.ts</div>
+            </div>
+          </div>
+        </div>
+      </div><!-- /#setup-guide -->
+
+      <!-- ── NORMAL WELCOME (shown when API key is already configured) ──── -->
+      <div id="welcome-normal" style="display:none">
+        <div class="setup-logo">✦</div>
+        <h2>Claude Code</h2>
+        <p>Your AI coding assistant. Ask questions, edit files, run commands, and more.</p>
+        <div class="welcome-tips-grid">
+          <div class="welcome-tip"><span class="tip-key">Enter</span> send message</div>
+          <div class="welcome-tip"><span class="tip-key">Shift+Enter</span> newline</div>
+          <div class="welcome-tip"><span class="tip-key">@file</span> add file to context</div>
+          <div class="welcome-tip"><span class="tip-key">📄</span> pick file from workspace</div>
+        </div>
+        <div class="welcome-examples">
+          <div class="welcome-example-label">Try asking:</div>
+          <div class="example-prompt" id="ex-w-1">explain this codebase</div>
+          <div class="example-prompt" id="ex-w-2">fix the bug in server.js</div>
+          <div class="example-prompt" id="ex-w-3">write unit tests for utils.ts</div>
+        </div>
+      </div><!-- /#welcome-normal -->
+
+    </div><!-- /#welcome -->
+  </div>
+
+  <!-- Loading indicator -->
+  <div id="loading-indicator">
+    <div class="spinner-dots"><span></span><span></span><span></span></div>
+    <span id="loading-text">Thinking…</span>
+  </div>
+
+  <!-- Context file chips -->
+  <div id="context-files" style="display:none"></div>
+
+  <!-- Input area -->
+  <div id="input-area">
+    <div id="input-wrapper">
+      <div id="autocomplete"></div>
+      <textarea
+        id="user-input"
+        rows="1"
+        placeholder="Ask Claude something… (@file for context)"
+        spellcheck="true"
+      ></textarea>
+      <div id="input-actions">
+        <button class="input-btn" id="add-file-btn" title="Add file to context">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="1" width="9" height="13" rx="1"/>
+            <path d="M8 1v4h4"/>
+            <path d="M11 1l2 2"/>
+          </svg>
+        </button>
+        <button id="stop-btn" title="Stop generation">■ Stop</button>
+        <button id="send-btn" title="Send (Enter)">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M14 8L2 2l3 6-3 6z"/>
+          </svg>
+          Send
+        </button>
+      </div>
+    </div>
+    <div id="input-hints">
+      <span><span class="hint-key">Enter</span> send</span>
+      <span><span class="hint-key">Shift+Enter</span> newline</span>
+      <span><span class="hint-key">Esc</span> stop</span>
+      <span><span class="hint-key">@</span> add file</span>
+    </div>
+  </div>
+
+  <!-- Stats bar -->
+  <div id="stats-bar">
+    <span class="stat-item"><span class="dot"></span> <span id="stats-model">—</span></span>
+    <span class="stat-item">🪙 <span id="stats-tokens">0</span> tk</span>
+    <span class="stat-item"><span id="stats-cost">$0.0000</span></span>
+    <div class="stat-spacer"></div>
+    <span class="stat-item">⏱ <span id="stats-time">0s</span></span>
+  </div>
+
+</div><!-- #app -->
+
+<!-- Apply modal -->
+<div id="apply-modal">
+  <div id="apply-modal-inner">
+    <div id="apply-modal-header">
+      <span id="apply-modal-title">Apply code to file</span>
+      <button class="header-btn" id="apply-cancel-top">✕</button>
+    </div>
+    <div id="apply-modal-body"></div>
+    <div id="apply-modal-footer">
+      <button class="modal-btn" id="apply-cancel-btn">Cancel</button>
+      <button class="modal-btn" id="apply-pick-btn">Pick file…</button>
+      <button class="modal-btn primary" id="apply-confirm-btn">Apply to active file</button>
+    </div>
+  </div>
+</div>
+
+<script src="<!--JS_URI-->"></script>
+</body>
+</html>
