@@ -348,12 +348,7 @@ GOOGLE_APPLICATION_CREDENTIALS=... occ -m vertex/claude-sonnet "hello"
 NVIDIA_API_KEY=nvapi-... occ -m kimi-k2.5 "hello"
 ```
 
-> **Note — NVIDIA thinking models:** Models such as `kimi-k2.5` and `deepseek-r1` use
-> `chat_template_kwargs: {thinking: true}` and do not accept a `tools` array in the same
-> request. Open Claude Code automatically detects these models, omits tools from the
-> request (preventing the HTTP 400 error), and injects a compact workspace file-tree
-> snapshot into the system prompt so the model still has full structural awareness of
-> your project without needing live tool calls.
+> **Note — NVIDIA models (Kimi K2.5, DeepSeek R1):** These models support **full tool-calling by default** — they can Read, Write, Bash, Grep, and run all 25+ agent tools exactly like Cursor or opencode. Set `NVIDIA_THINKING_MODE=true` (or toggle the `openClaudeCode.nvidiaThinkingMode` setting in the VSCode extension) to opt into extended reasoning mode; in that mode tools are replaced with a rich workspace snapshot injected into the system prompt (file tree + key file contents), since NVIDIA NIM does not allow tools and thinking simultaneously.
 
 ---
 
@@ -410,7 +405,9 @@ This is a **clean-room implementation** — no leaked source used. Architecture 
 **Fix: Proactive workspace analysis for all models** _(this PR)_
 - All models now receive a strong agentic system prompt declaring the workspace `cwd` and instructing them to explore files with LS / Glob / Read / Grep / Bash before answering — never asking the user to paste code
 - New `buildWorkspaceSnapshot` helper recursively walks the workspace (skipping `node_modules`, `.git`, `dist`, etc.) and returns a compact indented file tree capped at 200 entries
-- Kimi K2.5 and DeepSeek R1 (NVIDIA thinking models) now have the file tree injected directly into their system prompt — giving them full structural awareness even though NVIDIA NIM prevents live tool calls during thinking mode
+- New `buildWorkspaceContent` helper reads key project files (README, package.json, entry points, etc.) and returns their contents for inline injection — capped at 64 KB total
+- **Kimi K2.5 and DeepSeek R1 now use full tool-calling by default** — Read, Write, Bash, Grep, and all 25+ tools work exactly like Cursor or opencode; thinking/reasoning mode is an opt-in setting (`NVIDIA_THINKING_MODE=true` or `openClaudeCode.nvidiaThinkingMode` in VSCode settings)
+- When thinking mode IS enabled a rich workspace snapshot (file tree + key file contents) is injected into the system prompt with a purpose-built thinking-model system prompt
 - Extension model descriptions updated; version bumped to 1.2.0
 
 ### v1.1.0 — VSCode Extension & Bug Fixes

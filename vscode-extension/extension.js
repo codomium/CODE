@@ -190,6 +190,7 @@ async function getBridge() {
     env.ANTHROPIC_MODEL              = model;
     env.CLAUDE_CODE_PERMISSION_MODE  = permissionMode;
     env.CLAUDE_CODE_MAX_TURNS        = String(config.get('maxTurns') || 20);
+    env.NVIDIA_THINKING_MODE         = String(config.get('nvidiaThinkingMode') || false);
 
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
 
@@ -251,6 +252,7 @@ class ClaudeCodeViewProvider {
                     type: 'initialized',
                     model: config.get('model') || 'claude-sonnet-4-6',
                     mode:  config.get('permissionMode') || 'default',
+                    thinkingMode: !!config.get('nvidiaThinkingMode'),
                     hasApiKey,
                 });
                 break;
@@ -293,6 +295,15 @@ class ClaudeCodeViewProvider {
                 const config = vscode.workspace.getConfiguration('openClaudeCode');
                 await config.update('permissionMode', msg.mode, vscode.ConfigurationTarget.Global);
                 if (bridge) { bridge.dispose(); bridge = null; }
+                break;
+            }
+
+            case 'thinkingMode': {
+                const config = vscode.workspace.getConfiguration('openClaudeCode');
+                await config.update('nvidiaThinkingMode', !!msg.enabled, vscode.ConfigurationTarget.Global);
+                // Restart bridge so NVIDIA_THINKING_MODE env var is re-read
+                if (bridge) { bridge.dispose(); bridge = null; }
+                this.postMessage({ type: 'thinkingModeChanged', enabled: !!msg.enabled });
                 break;
             }
 

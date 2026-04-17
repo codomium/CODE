@@ -112,13 +112,13 @@
             "OpenAI GPT-4o",
             "OpenAI GPT-4o Mini",
             "Google Gemini 2.0 Flash",
-            "NVIDIA NIM — Moonshot AI Kimi K2.5 (thinking mode; workspace file tree injected automatically)",
+            "NVIDIA NIM — Moonshot AI Kimi K2.5 (full tool access; enable nvidiaThinkingMode for reasoning mode)",
             "NVIDIA NIM — Llama 3.1 Nemotron 70B Instruct",
             "NVIDIA NIM — Meta Llama 3.1 405B Instruct",
             "NVIDIA NIM — Meta Llama 3.3 70B Instruct",
             "NVIDIA NIM — Mistral Large 2 Instruct",
             "NVIDIA NIM — Mixtral 8x22B Instruct",
-            "NVIDIA NIM — DeepSeek R1 (thinking mode; workspace file tree injected automatically)"
+            "NVIDIA NIM — DeepSeek R1 (full tool access; enable nvidiaThinkingMode for reasoning mode)"
           ],
           "description": "AI model to use for the chat participant"
         },
@@ -126,6 +126,11 @@
           "type": "string",
           "default": "",
           "description": "NVIDIA NIM API key (from integrate.api.nvidia.com). Required when using any NVIDIA-hosted model."
+        },
+        "openClaudeCode.nvidiaThinkingMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable extended thinking (reasoning) mode for capable NVIDIA NIM models (kimi-k2.5, deepseek-r1). When enabled, the model reasons step-by-step but cannot use live tools (Read, Bash, Grep, etc.) — a workspace snapshot is injected instead. When disabled (default), these models use full tool-calling mode just like any other provider."
         },
         "openClaudeCode.permissionMode": {
           "type": "string",

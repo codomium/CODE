@@ -7,6 +7,8 @@
  * - Splits at cache boundary (static prefix cached, dynamic suffix not)
  * - Includes tool schemas in the system prompt
  * - Exports buildWorkspaceSnapshot for injecting a file-tree into prompts
+ * - Exports buildWorkspaceContent for injecting key file contents into prompts
+ *   (used for thinking models that cannot make live tool calls)
  */
 import fs from 'fs';
 import path from 'path';
@@ -76,6 +78,118 @@ export function buildWorkspaceSnapshot(cwd = process.cwd(), maxFiles = 200) {
     }
 
     return lines.join('\n');
+}
+
+// Priority-ordered list of project meta/config files to read for thinking models.
+// These give the model the most structural insight per token spent.
+const CONTENT_PRIORITY_FILES = [
+    // Documentation
+    'README.md', 'readme.md', 'README.txt',
+    // Package / dependency manifests
+    'package.json', 'Cargo.toml', 'pyproject.toml', 'setup.py', 'setup.cfg',
+    'go.mod', 'pom.xml', 'build.gradle', 'composer.json', 'Gemfile',
+    // Entry points
+    'index.js', 'index.mjs', 'index.ts', 'main.js', 'main.mjs', 'main.ts',
+    'main.py', '__main__.py', 'app.py', 'app.js', 'app.ts',
+    'src/index.js', 'src/index.mjs', 'src/index.ts',
+    'src/main.js', 'src/main.mjs', 'src/main.ts', 'src/main.py',
+    // Config
+    'CLAUDE.md', '.claude/CLAUDE.md',
+    'tsconfig.json', '.eslintrc.json', '.prettierrc.json',
+    'Makefile', 'Dockerfile',
+];
+
+/**
+ * Build a rich workspace context string that includes:
+ * 1. The compact file-tree snapshot (always)
+ * 2. Contents of high-value project files (README, package.json, entry points, etc.)
+ *
+ * This is intended for thinking models (e.g. Kimi K2.5, DeepSeek R1) that cannot
+ * make live tool calls. By providing actual file contents up front, the model can
+ * give accurate, project-specific answers without needing tool access.
+ *
+ * @param {string} [cwd] - workspace root (defaults to process.cwd())
+ * @param {object} [opts]
+ * @param {number} [opts.maxFileBytes=8192]  - max bytes to include per file
+ * @param {number} [opts.maxTotalBytes=65536] - hard cap on total injected content
+ * @returns {{ tree: string, files: Array<{path: string, content: string}>, summary: string }}
+ */
+export function buildWorkspaceContent(cwd = process.cwd(), opts = {}) {
+    const { maxFileBytes = 8192, maxTotalBytes = 65536 } = opts;
+    const root = path.resolve(cwd);
+
+    // 1. Build the file tree
+    const tree = buildWorkspaceSnapshot(root);
+
+    // 2. Collect priority file contents
+    const files = [];
+    let totalBytes = 0;
+
+    for (const rel of CONTENT_PRIORITY_FILES) {
+        if (totalBytes >= maxTotalBytes) break;
+        const abs = path.join(root, rel);
+        if (!fs.existsSync(abs)) continue;
+        try {
+            const stat = fs.statSync(abs);
+            if (!stat.isFile()) continue;
+            let content = fs.readFileSync(abs, 'utf-8');
+            const originalLength = content.length;
+            if (originalLength > maxFileBytes) {
+                content = content.slice(0, maxFileBytes) + `\n... (truncated — ${originalLength - maxFileBytes} more bytes)`;
+            }
+            const contentLength = content.length;
+            if (totalBytes + contentLength > maxTotalBytes) break;
+            files.push({ path: rel, content });
+            totalBytes += contentLength;
+        } catch { /* skip unreadable */ }
+    }
+
+    // 3. Build the formatted summary string
+    const parts = [];
+
+    if (tree) {
+        parts.push('## Workspace file structure\n\n```\n' + tree + '\n```');
+    }
+
+    for (const { path: filePath, content } of files) {
+        parts.push(`## File: ${filePath}\n\n\`\`\`\n${content}\n\`\`\``);
+    }
+
+    return {
+        tree,
+        files,
+        summary: parts.join('\n\n'),
+    };
+}
+
+/**
+ * Build the system prompt text for thinking models (Kimi K2.5, DeepSeek R1).
+ *
+ * Unlike the standard system prompt (which instructs the model to call tools),
+ * this version acknowledges that no tools are available and instead points the
+ * model to the pre-injected workspace content below the prompt.
+ *
+ * @param {string} staticBase - the static prefix of the normal system prompt
+ * @param {string} workspaceSummary - output of buildWorkspaceContent().summary
+ * @returns {string}
+ */
+export function buildThinkingModelSystemPrompt(staticBase, workspaceSummary) {
+    const header = [
+        `You are an AI coding assistant with access to a snapshot of the user's workspace.`,
+        ``,
+        `IMPORTANT: You are operating in thinking mode. Live tool calls (Read, Write, Bash, Grep, etc.)`,
+        `are NOT available in this session. Instead, a snapshot of the key project files and the`,
+        `complete workspace file tree has been embedded below. Use this snapshot to answer questions`,
+        `accurately and in full — never say you cannot see the project or ask the user to paste code.`,
+        ``,
+        `When the snapshot does not contain a file the user mentions, say so clearly and offer to`,
+        `reason from the available context.`,
+    ].join('\n');
+
+    const parts = [header];
+    if (staticBase) parts.push(staticBase);
+    if (workspaceSummary) parts.push('---\n\n# Workspace snapshot (read-only)\n\n' + workspaceSummary);
+    return parts.join('\n\n');
 }
 
 /**

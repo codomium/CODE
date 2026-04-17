@@ -134,6 +134,70 @@ select:focus { border-color: var(--accent); }
 
 .control-spacer { flex: 1; }
 
+/* ---- Thinking mode toggle pill ---- */
+.toggle-switch {
+  --toggle-w:           30px;
+  --toggle-h:           16px;
+  --toggle-knob:        10px;
+  --toggle-knob-offset: 2px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: var(--toggle-w);
+  height: var(--toggle-h);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--toggle-h);
+  transition: background 0.2s, border-color 0.2s;
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  left: var(--toggle-knob-offset);
+  top: 50%;
+  transform: translateY(-50%);
+  width: var(--toggle-knob);
+  height: var(--toggle-knob);
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: left 0.2s, background 0.2s;
+}
+.toggle-switch input:checked + .toggle-slider {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.toggle-switch input:checked + .toggle-slider::before {
+  /* width - knob - offset = 30 - 10 - 2 = 18, but keep 2px from right edge: 30 - 10 - 2 = 18 */
+  left: calc(var(--toggle-w) - var(--toggle-knob) - var(--toggle-knob-offset));
+  background: #fff;
+}
+.toggle-switch input:focus-visible + .toggle-slider {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+#thinking-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: default;
+}
+#thinking-label.active {
+  color: var(--accent);
+}
+
 /* ---- Messages ---- */
 #messages {
   flex: 1;
