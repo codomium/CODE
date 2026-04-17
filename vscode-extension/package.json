@@ -2,7 +2,7 @@
   "name": "open-claude-code",
   "displayName": "Open Claude Code",
   "description": "AI coding assistant powered by Claude — Cursor-style chat panel with file context, code apply, tool visualization and more",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "open-claude-code",
   "engines": {
     "vscode": "^1.90.0"
@@ -112,13 +112,13 @@
             "OpenAI GPT-4o",
             "OpenAI GPT-4o Mini",
             "Google Gemini 2.0 Flash",
-            "NVIDIA NIM — Moonshot AI Kimi K2.5 (with thinking)",
+            "NVIDIA NIM — Moonshot AI Kimi K2.5 (thinking mode; workspace file tree injected automatically)",
             "NVIDIA NIM — Llama 3.1 Nemotron 70B Instruct",
             "NVIDIA NIM — Meta Llama 3.1 405B Instruct",
             "NVIDIA NIM — Meta Llama 3.3 70B Instruct",
             "NVIDIA NIM — Mistral Large 2 Instruct",
             "NVIDIA NIM — Mixtral 8x22B Instruct",
-            "NVIDIA NIM — DeepSeek R1 (with thinking)"
+            "NVIDIA NIM — DeepSeek R1 (thinking mode; workspace file tree injected automatically)"
           ],
           "description": "AI model to use for the chat participant"
         },
@@ -170,7 +170,7 @@
     "prepackage": "node scripts/prepare-bundle.js",
     "package": "vsce package --no-dependencies",
     "postpackage": "node scripts/cleanup-bundle.js",
-    "install-vsix": "code --install-extension open-claude-code-1.1.0.vsix"
+    "install-vsix": "code --install-extension open-claude-code-1.2.0.vsix"
   },
   "devDependencies": {
     "@types/vscode": "^1.90.0",

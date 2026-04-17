@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-1581_passing-brightgreen?style=flat-square" />
+  <img alt="Tests" src="https://img.shields.io/badge/tests-913_passing-brightgreen?style=flat-square" />
   <img alt="Tools" src="https://img.shields.io/badge/tools-25-blue?style=flat-square" />
   <img alt="Commands" src="https://img.shields.io/badge/commands-40-blue?style=flat-square" />
   <img alt="npm" src="https://img.shields.io/npm/v/@ruvnet/open-claude-code?style=flat-square&label=npm" />
@@ -52,7 +52,7 @@ A **Cursor-style AI coding assistant** built directly into VSCode — no termina
 The extension package is included in the repo and ready to install:
 
 ```bash
-code --install-extension vscode-extension/open-claude-code-1.1.0.vsix
+code --install-extension vscode-extension/open-claude-code-1.2.0.vsix
 ```
 
 Or use **Extensions → … → Install from VSIX…** and pick the file from the `vscode-extension/` folder.
@@ -63,7 +63,7 @@ Or use **Extensions → … → Install from VSIX…** and pick the file from th
 cd vscode-extension
 npm install
 npm run package          # prepackage → package → postpackage
-code --install-extension open-claude-code-1.1.0.vsix
+code --install-extension open-claude-code-1.2.0.vsix
 ```
 
 ### Highlights
@@ -78,6 +78,7 @@ code --install-extension open-claude-code-1.1.0.vsix
 - **Multi-provider** — Anthropic Claude, OpenAI GPT, Google Gemini, NVIDIA NIM
 - **Model & permission-mode selector** — switch model and mode directly from the UI
 - **Session stats** — token count, cost estimate, and elapsed time always visible
+- **Proactive workspace analysis** — the agent explores your project automatically before answering; never asks you to paste code
 
 See [`vscode-extension/README.md`](./vscode-extension/README.md) for the full setup and configuration guide.
 
@@ -349,8 +350,10 @@ NVIDIA_API_KEY=nvapi-... occ -m kimi-k2.5 "hello"
 
 > **Note — NVIDIA thinking models:** Models such as `kimi-k2.5` and `deepseek-r1` use
 > `chat_template_kwargs: {thinking: true}` and do not accept a `tools` array in the same
-> request. Open Claude Code automatically detects these models and omits tools from the
-> request, preventing the HTTP 400 error that previously made them unusable.
+> request. Open Claude Code automatically detects these models, omits tools from the
+> request (preventing the HTTP 400 error), and injects a compact workspace file-tree
+> snapshot into the system prompt so the model still has full structural awareness of
+> your project without needing live tool calls.
 
 ---
 
@@ -401,6 +404,14 @@ This is a **clean-room implementation** — no leaked source used. Architecture 
 ---
 
 ## 🆕 What's New
+
+### v1.2.0 — Proactive Workspace Analysis
+
+**Fix: Proactive workspace analysis for all models** _(this PR)_
+- All models now receive a strong agentic system prompt declaring the workspace `cwd` and instructing them to explore files with LS / Glob / Read / Grep / Bash before answering — never asking the user to paste code
+- New `buildWorkspaceSnapshot` helper recursively walks the workspace (skipping `node_modules`, `.git`, `dist`, etc.) and returns a compact indented file tree capped at 200 entries
+- Kimi K2.5 and DeepSeek R1 (NVIDIA thinking models) now have the file tree injected directly into their system prompt — giving them full structural awareness even though NVIDIA NIM prevents live tool calls during thinking mode
+- Extension model descriptions updated; version bumped to 1.2.0
 
 ### v1.1.0 — VSCode Extension & Bug Fixes
 
