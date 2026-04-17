@@ -13,6 +13,9 @@ A **Cursor-style AI coding assistant** built directly into VSCode — no termina
 
 ### 🖥️ Cursor-style Sidebar Panel (new in v1.1)
 - **Dedicated activity bar icon** — opens a full chat panel in the VS Code sidebar
+- **⚙ Settings button** — gear icon in the header opens the `openClaudeCode` settings section directly — no navigating through the Extensions marketplace
+- **Chat history** — the **History** header button opens a Cursor-style panel listing all past sessions; sessions auto-save when you click **New** and persist across VS Code restarts (up to 30 sessions stored in `globalState`)
+- **Copy whole answer** — ⎘ Copy button on every assistant reply copies the full response to the clipboard (visible on hover)
 - **Rich markdown rendering** — headers, tables, bold/italic, blockquotes
 - **Syntax-highlighted code blocks** — JavaScript, TypeScript, Python, Go, Rust, JSON, Bash and more
 - **Copy button on every code block** — one click to copy to clipboard
@@ -25,7 +28,7 @@ A **Cursor-style AI coding assistant** built directly into VSCode — no termina
 - **Model & mode selector** — switch model and permission mode directly from the UI
 - **Session stats** — token count, cost estimate, and elapsed time always visible
 - **Stop button** — cancel generation at any time
-- **New conversation** — clear history with one click
+- **New conversation** — clear history with one click (auto-saves the current session)
 
 ### 💬 `@claude` Chat Participant (VSCode built-in chat)
 - Ask questions, request code changes, and run agentic tools without leaving the editor
@@ -128,12 +131,16 @@ Click the **✦ Claude Code** icon in the activity bar (left sidebar) to open th
 - Type your message and press **Enter** to send (Shift+Enter for a new line)
 - Use `@filename` to inject file contents into the prompt
 - Click **📄** to pick a file from the workspace
-- Click **New** to start a fresh conversation
+- Click **History** to browse and reopen past conversations (sessions auto-save when you click **New**)
+- Click **New** to start a fresh conversation (saves the current session first)
+- Click **⚙** (gear) to open the extension settings directly from the chat panel
 - Use the **Model** and **Mode** dropdowns to configure the agent
 
 When Claude suggests code, every code block has:
 - **Copy** — copy the code to clipboard
 - **Apply to file…** — apply the code to the active editor (or pick a file)
+
+Every assistant message also has a **⎘ Copy** button (visible on hover) that copies the full response text.
 
 ### @claude chat participant (VSCode built-in chat)
 

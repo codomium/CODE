@@ -31,6 +31,25 @@ jobs:
         working-directory: vscode-extension
         run: npm install
 
+      - name: Lint extension source files
+        run: |
+          ERRORS=0
+          for file in vscode-extension/extension.js vscode-extension/agent-bridge.mjs; do
+            if [ -f "$file" ]; then
+              if ! node --check "$file" 2>/tmp/lint-err.txt; then
+                echo "::error file=${file}::Syntax error in ${file}"
+                cat /tmp/lint-err.txt
+                ERRORS=$((ERRORS + 1))
+              else
+                echo "::notice::${file} — OK"
+              fi
+            fi
+          done
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "::error::${ERRORS} extension file(s) have syntax errors"
+            exit 1
+          fi
+
       - name: Package VSIX
         working-directory: vscode-extension
         run: npm run package
