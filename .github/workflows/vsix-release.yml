@@ -27,12 +27,13 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install vsce
-        run: npm install -g @vscode/vsce
+      - name: Install dependencies
+        working-directory: vscode-extension
+        run: npm install
 
       - name: Package VSIX
         working-directory: vscode-extension
-        run: vsce package --no-dependencies --allow-missing-repository
+        run: npm run package
 
       - name: Find VSIX file
         id: find_vsix
