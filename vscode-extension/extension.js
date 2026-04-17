@@ -180,11 +180,13 @@ async function getBridge() {
         process.env.ANTHROPIC_API_KEY || '';
     const openaiKey  = process.env.OPENAI_API_KEY  || '';
     const googleKey  = process.env.GOOGLE_API_KEY  || process.env.GEMINI_API_KEY || '';
+    const nvidiaKey  = config.get('nvidiaApiKey') || process.env.NVIDIA_API_KEY  || '';
 
     const env = {};
     if (anthropicKey) env.ANTHROPIC_API_KEY  = anthropicKey;
     if (openaiKey)    env.OPENAI_API_KEY     = openaiKey;
     if (googleKey)    env.GOOGLE_API_KEY     = googleKey;
+    if (nvidiaKey)    env.NVIDIA_API_KEY     = nvidiaKey;
     env.ANTHROPIC_MODEL              = model;
     env.CLAUDE_CODE_PERMISSION_MODE  = permissionMode;
     env.CLAUDE_CODE_MAX_TURNS        = String(config.get('maxTurns') || 20);

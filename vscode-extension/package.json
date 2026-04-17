@@ -96,9 +96,36 @@
             "claude-opus-4-6",
             "gpt-4o",
             "gpt-4o-mini",
-            "gemini-2.0-flash"
+            "gemini-2.0-flash",
+            "moonshotai/kimi-k2.5",
+            "nvidia/llama-3.1-nemotron-70b-instruct",
+            "meta/llama-3.1-405b-instruct",
+            "meta/llama-3.3-70b-instruct",
+            "mistralai/mistral-large-2-instruct",
+            "mistralai/mixtral-8x22b-instruct-v0.1",
+            "deepseek-ai/deepseek-r1"
+          ],
+          "enumDescriptions": [
+            "Anthropic Claude Sonnet 4.6",
+            "Anthropic Claude Haiku 4.5",
+            "Anthropic Claude Opus 4.6",
+            "OpenAI GPT-4o",
+            "OpenAI GPT-4o Mini",
+            "Google Gemini 2.0 Flash",
+            "NVIDIA NIM — Moonshot AI Kimi K2.5 (with thinking)",
+            "NVIDIA NIM — Llama 3.1 Nemotron 70B Instruct",
+            "NVIDIA NIM — Meta Llama 3.1 405B Instruct",
+            "NVIDIA NIM — Meta Llama 3.3 70B Instruct",
+            "NVIDIA NIM — Mistral Large 2 Instruct",
+            "NVIDIA NIM — Mixtral 8x22B Instruct",
+            "NVIDIA NIM — DeepSeek R1 (with thinking)"
           ],
           "description": "AI model to use for the chat participant"
+        },
+        "openClaudeCode.nvidiaApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "NVIDIA NIM API key (from integrate.api.nvidia.com). Required when using any NVIDIA-hosted model."
         },
         "openClaudeCode.permissionMode": {
           "type": "string",
