@@ -6,6 +6,9 @@ dist/
 build/
 *.tgz
 
+# VS Code extension packages
+*.vsix
+
 # Environment
 .env
 .env.local
