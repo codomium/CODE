@@ -1,15 +1,32 @@
 # Open Claude Code — VSCode Extension
 
-Use **Open Claude Code** as a chatbot directly inside VSCode's built-in Chat panel — no terminal required.
+A **Cursor-style AI coding assistant** built directly into VSCode — no terminal required.
 
 ---
 
 ## Features
 
-- **`@claude` chat participant** — ask questions, request code changes, and run agentic tools without leaving the editor
+### 🖥️ Cursor-style Sidebar Panel (new in v1.1)
+- **Dedicated activity bar icon** — opens a full chat panel in the VS Code sidebar
+- **Rich markdown rendering** — headers, tables, bold/italic, blockquotes
+- **Syntax-highlighted code blocks** — JavaScript, TypeScript, Python, Go, Rust, JSON, Bash and more
+- **Copy button on every code block** — one click to copy to clipboard
+- **Apply to file** — apply AI-suggested code directly to the active editor or pick a file
+- **Streaming responses** — see tokens arrive in real-time with animated cursor
+- **Tool visualization** — collapsible cards showing each tool execution and result
+- **Extended thinking** — expandable thinking blocks when the model reasons
+- **@file context** — type `@filename` in the input to inject file contents into the prompt
+- **File picker** — add any workspace file to context with the 📄 button
+- **Model & mode selector** — switch model and permission mode directly from the UI
+- **Session stats** — token count, cost estimate, and elapsed time always visible
+- **Stop button** — cancel generation at any time
+- **New conversation** — clear history with one click
+
+### 💬 `@claude` Chat Participant (VSCode built-in chat)
+- Ask questions, request code changes, and run agentic tools without leaving the editor
 - **Full tool access** — the same 25+ tools as the CLI (Read, Write, Edit, Bash, Glob, Grep, WebFetch, …)
-- **Multi-provider** — Anthropic Claude, OpenAI GPT, Google Gemini (set the model in settings)
-- **Conversation memory** — history is maintained across turns in the same VSCode session
+- **Multi-provider** — Anthropic Claude, OpenAI GPT, Google Gemini
+- **Conversation memory** — history is maintained across turns in the same VS Code session
 - **Slash commands** — `/clear` to reset, `/model` to switch models mid-session
 - **Configurable permission mode** — control how aggressively the agent modifies your files
 
@@ -69,6 +86,21 @@ code .
 
 ## Usage
 
+### Sidebar chat panel (recommended)
+
+Click the **✦ Claude Code** icon in the activity bar (left sidebar) to open the chat panel, then:
+- Type your message and press **Enter** to send (Shift+Enter for a new line)
+- Use `@filename` to inject file contents into the prompt
+- Click **📄** to pick a file from the workspace
+- Click **New** to start a fresh conversation
+- Use the **Model** and **Mode** dropdowns to configure the agent
+
+When Claude suggests code, every code block has:
+- **Copy** — copy the code to clipboard
+- **Apply to file…** — apply the code to the active editor (or pick a file)
+
+### @claude chat participant (VSCode built-in chat)
+
 Open the **Chat** panel (`Ctrl+Alt+I` / `Cmd+Alt+I`) and type:
 
 ```
@@ -92,6 +124,8 @@ Open the **Chat** panel (`Ctrl+Alt+I` / `Cmd+Alt+I`) and type:
 | **Open Claude Code: Set API Key** | Store your API key securely |
 | **Open Claude Code: Clear Session** | Reset conversation history |
 | **Open Claude Code: Show Status** | Show bridge status, model, and key info |
+| **Open Claude Code: Open Chat Panel** | Focus the sidebar chat panel |
+| **Open Claude Code: Apply Code to Active File** | Paste code into the active editor |
 
 ---
 
@@ -105,6 +139,7 @@ Open **Settings** (`Ctrl+,`) and search for `openClaudeCode`:
 | `openClaudeCode.permissionMode` | `default` | How the agent handles file/shell permissions |
 | `openClaudeCode.maxTurns` | `20` | Maximum agentic tool-use turns per request |
 | `openClaudeCode.showToolOutput` | `true` | Show tool progress and results in chat |
+| `openClaudeCode.enableWebviewPanel` | `true` | Show the Cursor-style sidebar chat panel |
 
 ### Permission modes
 
@@ -123,19 +158,25 @@ Open **Settings** (`Ctrl+,`) and search for `openClaudeCode`:
 The extension spawns **`agent-bridge.mjs`** as a long-lived Node.js subprocess in your workspace directory.  The bridge imports the Open Claude Code agent loop from `../v2/src/` and speaks a simple newline-delimited JSON protocol over stdin/stdout.
 
 ```
-VSCode Chat UI
-    │  vscode.chat.createChatParticipant
-    ▼
-extension.js (CJS, extension host)
-    │  child_process.spawn
-    ▼
-agent-bridge.mjs (ESM, Node.js subprocess)
-    │  createAgentLoop + 25 tools
-    ▼
-Anthropic / OpenAI / Google API
+┌──────────────────────────────────────────────────────┐
+│  VS Code Extension Host                              │
+│                                                      │
+│  ┌─────────────────────────┐  ┌────────────────────┐ │
+│  │  ClaudeCodeViewProvider │  │  ChatParticipant   │ │
+│  │  (Cursor-style sidebar) │  │  (@claude)         │ │
+│  └──────────┬──────────────┘  └─────────┬──────────┘ │
+│             │ postMessage / onMessage    │            │
+│             └────────────┬──────────────┘            │
+│                          │ child_process.spawn        │
+└──────────────────────────┼──────────────────────────-┘
+                           ▼
+              agent-bridge.mjs  (ESM Node.js subprocess)
+                     │  createAgentLoop + 25 tools
+                     ▼
+          Anthropic / OpenAI / Google API
 ```
 
-The subprocess persists across chat turns so the agent's conversation history is maintained.  Sending `@claude /clear` (or running the **Clear Session** command) resets the history.
+The subprocess persists across chat turns so the agent's conversation history is maintained.  Clicking **New** (or running the **Clear Session** command) resets the history.
 
 ---
 

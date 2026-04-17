@@ -1,8 +1,8 @@
 {
   "name": "open-claude-code",
   "displayName": "Open Claude Code",
-  "description": "AI coding assistant powered by Claude — chat inside VSCode using the Open Claude Code agent loop",
-  "version": "1.0.0",
+  "description": "AI coding assistant powered by Claude — Cursor-style chat panel with file context, code apply, tool visualization and more",
+  "version": "1.1.0",
   "publisher": "open-claude-code",
   "engines": {
     "vscode": "^1.90.0"
@@ -16,13 +16,33 @@
     "ai",
     "chat",
     "coding assistant",
-    "anthropic"
+    "anthropic",
+    "cursor"
   ],
   "activationEvents": [
     "onStartupFinished"
   ],
   "main": "./extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claude-code-sidebar",
+          "title": "Claude Code",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "claude-code-sidebar": [
+        {
+          "type": "webview",
+          "id": "claudeCode.chatView",
+          "name": "Chat",
+          "retainContextWhenHidden": true
+        }
+      ]
+    },
     "chatParticipants": [
       {
         "id": "open-claude-code.claude",
@@ -54,6 +74,14 @@
       {
         "command": "openClaudeCode.showStatus",
         "title": "Open Claude Code: Show Status"
+      },
+      {
+        "command": "openClaudeCode.openChat",
+        "title": "Open Claude Code: Open Chat Panel"
+      },
+      {
+        "command": "openClaudeCode.applyCode",
+        "title": "Open Claude Code: Apply Code to Active File"
       }
     ],
     "configuration": {
@@ -102,6 +130,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show tool progress and results inline in chat"
+        },
+        "openClaudeCode.enableWebviewPanel": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Cursor-style sidebar chat panel (requires reload)"
         }
       }
     }
