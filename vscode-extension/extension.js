@@ -252,6 +252,7 @@ class ClaudeCodeViewProvider {
                     type: 'initialized',
                     model: config.get('model') || 'claude-sonnet-4-6',
                     mode:  config.get('permissionMode') || 'default',
+                    thinkingMode: !!config.get('nvidiaThinkingMode'),
                     hasApiKey,
                 });
                 break;
@@ -294,6 +295,15 @@ class ClaudeCodeViewProvider {
                 const config = vscode.workspace.getConfiguration('openClaudeCode');
                 await config.update('permissionMode', msg.mode, vscode.ConfigurationTarget.Global);
                 if (bridge) { bridge.dispose(); bridge = null; }
+                break;
+            }
+
+            case 'thinkingMode': {
+                const config = vscode.workspace.getConfiguration('openClaudeCode');
+                await config.update('nvidiaThinkingMode', !!msg.enabled, vscode.ConfigurationTarget.Global);
+                // Restart bridge so NVIDIA_THINKING_MODE env var is re-read
+                if (bridge) { bridge.dispose(); bridge = null; }
+                this.postMessage({ type: 'thinkingModeChanged', enabled: !!msg.enabled });
                 break;
             }
 

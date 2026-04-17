@@ -52,6 +52,15 @@
     const applyConfirmBtn = document.getElementById('apply-confirm-btn');
     const applyPickBtn   = document.getElementById('apply-pick-btn');
     const applyCancelBtn = document.getElementById('apply-cancel-btn');
+    const thinkingToggleEl      = document.getElementById('thinking-toggle');
+    const thinkingToggleWrapper = document.getElementById('thinking-toggle-wrapper');
+    const thinkingLabelEl       = document.getElementById('thinking-label');
+
+    /** Models that support NVIDIA thinking mode toggle */
+    const THINKING_CAPABLE_MODELS = new Set([
+        'moonshotai/kimi-k2.5',
+        'deepseek-ai/deepseek-r1',
+    ]);
 
     // ── Tick elapsed time ────────────────────────────────────────────────────
     setInterval(() => {
@@ -714,6 +723,7 @@
             case 'modelChanged':
                 currentModel = msg.model || currentModel;
                 if (modelSelect) modelSelect.value = msg.model || '';
+                syncThinkingToggleVisibility(currentModel);
                 updateStats();
                 break;
 
@@ -737,6 +747,11 @@
                 currentModel = msg.model || 'claude-sonnet-4-6';
                 if (modelSelect && msg.model) modelSelect.value = msg.model;
                 if (modeSelect && msg.mode) modeSelect.value = msg.mode;
+                if (thinkingToggleEl) {
+                    thinkingToggleEl.checked = !!msg.thinkingMode;
+                    if (thinkingLabelEl) thinkingLabelEl.classList.toggle('active', !!msg.thinkingMode);
+                }
+                syncThinkingToggleVisibility(currentModel);
                 updateStats();
                 showWelcome(!!msg.hasApiKey);
                 break;
@@ -1036,12 +1051,29 @@
             vscode.postMessage({ type: 'model', model: modelSelect.value });
             currentModel = modelSelect.value;
             updateStats();
+            syncThinkingToggleVisibility(modelSelect.value);
         });
     }
 
     if (modeSelect) {
         modeSelect.addEventListener('change', () => {
             vscode.postMessage({ type: 'mode', mode: modeSelect.value });
+        });
+    }
+
+    // ── Thinking mode toggle (NVIDIA capable models only) ─────────────────────
+    function syncThinkingToggleVisibility(model) {
+        const visible = THINKING_CAPABLE_MODELS.has(model);
+        const display = visible ? '' : 'none';
+        if (thinkingToggleWrapper) thinkingToggleWrapper.style.display = display;
+        if (thinkingLabelEl)       thinkingLabelEl.style.display       = display;
+    }
+
+    if (thinkingToggleEl) {
+        thinkingToggleEl.addEventListener('change', () => {
+            const enabled = thinkingToggleEl.checked;
+            if (thinkingLabelEl) thinkingLabelEl.classList.toggle('active', enabled);
+            vscode.postMessage({ type: 'thinkingMode', enabled });
         });
     }
 
