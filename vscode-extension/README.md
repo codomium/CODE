@@ -8,8 +8,8 @@ A **Cursor-style AI coding assistant** built directly into VSCode — no termina
 
 ### 🗂️ Proactive workspace analysis (new in v1.2)
 - **Automatic workspace exploration** — before answering questions the agent scans your project with LS, Glob, Read, and Grep instead of asking you to paste code
-- **Workspace file tree injection for thinking models** — Kimi K2.5 and DeepSeek R1 receive a compact file-tree snapshot in their system prompt so they know your project layout even though NVIDIA NIM prevents live tool calls during thinking
-- **Never "I can't see your files"** — the system prompt explicitly forbids asking you to share code; the agent reads files directly
+- **Rich workspace injection for thinking models** — Kimi K2.5 and DeepSeek R1 receive a full workspace snapshot (file tree + key file contents: README, package.json, entry points, etc.) directly in their system prompt, so they have genuine project understanding even though NVIDIA NIM prevents live tool calls during thinking mode
+- **Never "I can't see your files"** — the system prompt explicitly forbids asking you to share code; the agent reads files directly or uses the pre-injected snapshot
 
 ### 🖥️ Cursor-style Sidebar Panel (new in v1.1)
 - **Dedicated activity bar icon** — opens a full chat panel in the VS Code sidebar
@@ -222,8 +222,11 @@ The subprocess persists across chat turns so the agent's conversation history is
 NVIDIA NIM rejects requests that combine `chat_template_kwargs.thinking` with a tools array, so these models cannot make live tool calls. Open Claude Code works around this automatically:
 
 - The agent omits tools from the request (preventing the HTTP 400 error)
-- A compact workspace file tree is appended to the system prompt so the model knows your project layout without needing live tool access
-- The system prompt instructs the model to reason about files by path rather than asking you to paste them
+- A **rich workspace snapshot** is built and injected directly into the system prompt:
+  - **File tree** — the full indented directory structure of your project
+  - **Key file contents** — README, package.json/Cargo.toml/pyproject.toml, main entry points, and other high-value project files (up to ~64 KB total)
+- The system prompt is rewritten for thinking mode: instead of "use tools to explore", it tells the model "here is the workspace content — reason from this"
+- The model can give accurate, project-specific answers without ever needing live tool access
 
 To use a thinking model, select **moonshotai/kimi-k2.5** or **deepseek-ai/deepseek-r1** from the Model dropdown and enter your `NVIDIA_API_KEY` in Settings.
 
