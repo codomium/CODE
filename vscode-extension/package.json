@@ -167,7 +167,9 @@
     }
   },
   "scripts": {
+    "prepackage": "node scripts/prepare-bundle.js",
     "package": "vsce package --no-dependencies",
+    "postpackage": "node scripts/cleanup-bundle.js",
     "install-vsix": "code --install-extension open-claude-code-1.1.0.vsix"
   },
   "devDependencies": {

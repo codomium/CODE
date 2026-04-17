@@ -29,16 +29,51 @@
  *   ANTHROPIC_MODEL          — initial model override
  *   CLAUDE_CODE_PERMISSION_MODE
  *   CLAUDE_CODE_MAX_TURNS
+ *
+ * v2/src resolution:
+ *   When installed from a VSIX the v2 source is bundled inside the extension
+ *   directory as ./v2/src (copied by the prepackage script).
+ *   When running from source (development / F5) ../v2/src is used instead.
  */
 
-import { createAgentLoop } from '../v2/src/core/agent-loop.mjs';
-import { createToolRegistry } from '../v2/src/tools/registry.mjs';
-import { createPermissionChecker } from '../v2/src/permissions/checker.mjs';
-import { loadSettings } from '../v2/src/config/settings.mjs';
-import { HookEngine } from '../v2/src/hooks/engine.mjs';
-import { AgentLoader } from '../v2/src/agents/loader.mjs';
-import { SkillsLoader } from '../v2/src/skills/loader.mjs';
+import { fileURLToPath, pathToFileURL } from 'url';
+import path from 'path';
+import { existsSync } from 'fs';
 import readline from 'readline';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// ---------------------------------------------------------------------------
+// Locate v2/src at runtime so the bridge works in both packaged and dev modes.
+// ---------------------------------------------------------------------------
+function findV2Src() {
+    const candidates = [
+        path.join(__dirname, 'v2', 'src'),        // installed from VSIX (bundled)
+        path.join(__dirname, '..', 'v2', 'src'),  // development — sibling directory
+    ];
+    for (const candidate of candidates) {
+        if (existsSync(path.join(candidate, 'core', 'agent-loop.mjs'))) {
+            return candidate;
+        }
+    }
+    throw new Error(
+        'Cannot locate v2/src. Checked:\n' +
+        candidates.map(c => '  ' + c).join('\n') + '\n' +
+        'Run `npm run package` from the vscode-extension/ directory to bundle the source.'
+    );
+}
+
+const V2_SRC = findV2Src();
+const v2url  = (rel) => pathToFileURL(path.join(V2_SRC, rel)).href;
+
+// Dynamic imports — resolved against the path found above.
+const { createAgentLoop }      = await import(v2url('core/agent-loop.mjs'));
+const { createToolRegistry }   = await import(v2url('tools/registry.mjs'));
+const { createPermissionChecker } = await import(v2url('permissions/checker.mjs'));
+const { loadSettings }         = await import(v2url('config/settings.mjs'));
+const { HookEngine }           = await import(v2url('hooks/engine.mjs'));
+const { AgentLoader }          = await import(v2url('agents/loader.mjs'));
+const { SkillsLoader }         = await import(v2url('skills/loader.mjs'));
 
 // Redirect console.error/warn to stderr so we don't pollute the ndjson stream.
 // (It already goes to stderr by default, but belt-and-suspenders.)
