@@ -10,11 +10,17 @@ import fs from 'fs';
 import path from 'path';
 
 /**
- * NVIDIA NIM models that use chat_template_kwargs.thinking=true.
- * These models do NOT support function-calling tools simultaneously —
- * the NVIDIA API returns 400 when both are present in the same request.
+ * NVIDIA NIM models that CAN use chat_template_kwargs.thinking=true for
+ * extended reasoning — but only when NVIDIA_THINKING_MODE=true is set.
+ *
+ * By default (NVIDIA_THINKING_MODE unset / false) these models work in
+ * standard tool-calling mode: Read, Write, Bash, Grep, etc. all work.
+ *
+ * When NVIDIA_THINKING_MODE=true the thinking flag is added and tools are
+ * omitted (NVIDIA NIM rejects the combination), falling back to workspace
+ * snapshot injection.
  */
-const NVIDIA_THINKING_MODELS = new Set([
+const NVIDIA_THINKING_CAPABLE_MODELS = new Set([
     'moonshotai/kimi-k2.5',
     'deepseek-ai/deepseek-r1',
 ]);
@@ -399,15 +405,15 @@ async function callNvidia(model, state, toolDefs, settings, stream) {
     const apiKey = process.env.NVIDIA_API_KEY;
     if (!apiKey) throw new Error('NVIDIA_API_KEY not set');
 
-    // Models that support extended thinking via chat_template_kwargs.
-    // Per NVIDIA NIM documentation, these models do NOT support function
-    // calling simultaneously with thinking — tools must be omitted.
-    const supportsThinking = NVIDIA_THINKING_MODELS.has(model);
+    // Thinking mode is opt-in: only enabled when NVIDIA_THINKING_MODE=true.
+    // By default, capable models (kimi-k2.5, deepseek-r1) use standard
+    // function-calling mode — tools work exactly as in any other provider.
+    const thinkingEnabled = process.env.NVIDIA_THINKING_MODE === 'true';
+    const supportsThinking = thinkingEnabled && NVIDIA_THINKING_CAPABLE_MODELS.has(model);
 
-    // For thinking models the tool-list suffix in the system prompt would be
-    // misleading (no tools are sent), so use the static prefix only.
-    // Additionally, inject a rich workspace snapshot (file tree + key file contents)
-    // so the model can reason about the project structure and content without live tools.
+    // When thinking mode is active the tool-list suffix would be misleading
+    // (NVIDIA NIM rejects tools + thinking together), so swap in a special
+    // system prompt with a rich workspace snapshot instead.
     let systemPrompt = state.systemPrompt;
     if (supportsThinking) {
         if (!state.systemPromptStatic) {
@@ -434,8 +440,8 @@ async function callNvidia(model, state, toolDefs, settings, stream) {
         ...(supportsThinking && {
             chat_template_kwargs: { thinking: true },
         }),
-        // Only include tools for non-thinking models — NVIDIA NIM rejects
-        // the combination of chat_template_kwargs.thinking + tools.
+        // Include tools unless thinking mode is active (NVIDIA NIM rejects
+        // the combination of chat_template_kwargs.thinking + tools).
         ...(!supportsThinking && toolDefs.length > 0 && {
             tools: toolDefs.map(t => ({
                 type: 'function',

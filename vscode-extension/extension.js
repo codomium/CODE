@@ -190,6 +190,7 @@ async function getBridge() {
     env.ANTHROPIC_MODEL              = model;
     env.CLAUDE_CODE_PERMISSION_MODE  = permissionMode;
     env.CLAUDE_CODE_MAX_TURNS        = String(config.get('maxTurns') || 20);
+    env.NVIDIA_THINKING_MODE         = String(config.get('nvidiaThinkingMode') || false);
 
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
 

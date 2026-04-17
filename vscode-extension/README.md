@@ -173,6 +173,7 @@ Open **Settings** (`Ctrl+,`) and search for `openClaudeCode`:
 |---------|---------|-------------|
 | `openClaudeCode.model` | `claude-sonnet-4-6` | AI model to use |
 | `openClaudeCode.nvidiaApiKey` | _(empty)_ | NVIDIA NIM API key (`nvapi-...`) |
+| `openClaudeCode.nvidiaThinkingMode` | `false` | Enable extended reasoning mode for Kimi K2.5 / DeepSeek R1 (disables live tools) |
 | `openClaudeCode.permissionMode` | `default` | How the agent handles file/shell permissions |
 | `openClaudeCode.maxTurns` | `20` | Maximum agentic tool-use turns per request |
 | `openClaudeCode.showToolOutput` | `true` | Show tool progress and results in chat |
@@ -217,18 +218,29 @@ The subprocess persists across chat turns so the agent's conversation history is
 
 ---
 
-### NVIDIA thinking models (Kimi K2.5, DeepSeek R1)
+### NVIDIA models — Kimi K2.5 and DeepSeek R1
 
-NVIDIA NIM rejects requests that combine `chat_template_kwargs.thinking` with a tools array, so these models cannot make live tool calls. Open Claude Code works around this automatically:
+These models are supported in two modes. **Tool-calling mode is the default** and works exactly like Cursor or opencode — the model reads files, runs Bash, greps for patterns, and edits code like any other agent model.
 
-- The agent omits tools from the request (preventing the HTTP 400 error)
-- A **rich workspace snapshot** is built and injected directly into the system prompt:
-  - **File tree** — the full indented directory structure of your project
-  - **Key file contents** — README, package.json/Cargo.toml/pyproject.toml, main entry points, and other high-value project files (up to ~64 KB total)
-- The system prompt is rewritten for thinking mode: instead of "use tools to explore", it tells the model "here is the workspace content — reason from this"
-- The model can give accurate, project-specific answers without ever needing live tool access
+#### Default: full tool-calling mode
 
-To use a thinking model, select **moonshotai/kimi-k2.5** or **deepseek-ai/deepseek-r1** from the Model dropdown and enter your `NVIDIA_API_KEY` in Settings.
+Just select **moonshotai/kimi-k2.5** or **deepseek-ai/deepseek-r1**, enter your `NVIDIA_API_KEY` in Settings, and start chatting. The model has access to all tools: Read, Write, Edit, Bash, Glob, Grep, and more.
+
+#### Optional: extended thinking (reasoning) mode
+
+If you want the model to show its step-by-step reasoning, enable the **nvidiaThinkingMode** setting:
+
+1. Open Settings (`Ctrl+,`), search for `openClaudeCode.nvidiaThinkingMode`, and set it to **true**.
+2. Run **Open Claude Code: Clear Session** so the bridge restarts with the new setting.
+
+In thinking mode the NVIDIA NIM API does not accept live tool calls alongside the thinking flag, so tools are replaced with a rich workspace snapshot injected into the system prompt:
+- **File tree** — the full indented directory structure of your project
+- **Key file contents** — README, package.json/Cargo.toml/pyproject.toml, main entry points, and other high-value project files (up to ~64 KB total)
+
+| Mode | Tools | Thinking trace | Best for |
+|------|-------|---------------|---------|
+| Tool-calling (default) | ✅ Full access | ❌ | Multi-step coding tasks, file edits, grep, bash |
+| Thinking (`nvidiaThinkingMode: true`) | ❌ | ✅ | Deep analysis, architecture review, explanations |
 
 ---
 
