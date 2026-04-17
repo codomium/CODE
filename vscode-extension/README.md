@@ -66,11 +66,13 @@ A **Cursor-style AI coding assistant** built directly into VSCode — no termina
    ```bash
    cd vscode-extension
    npm install
-   vsce package --no-dependencies
+   npm run package
    ```
+   The `prepackage` step automatically copies the `v2/src` engine into the
+   extension bundle so all functionality is available after installation.
 3. Install it in VSCode:
    ```bash
-   code --install-extension open-claude-code-1.0.0.vsix
+   code --install-extension open-claude-code-1.1.0.vsix
    ```
    Or use **Extensions → … → Install from VSIX…** in the VSCode UI.
 

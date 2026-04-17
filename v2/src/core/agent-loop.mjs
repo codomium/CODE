@@ -8,6 +8,17 @@ import { buildSystemPrompt } from './system-prompt.mjs';
 import { isNvidiaModel } from './providers.mjs';
 import fs from 'fs';
 import path from 'path';
+
+/**
+ * NVIDIA NIM models that use chat_template_kwargs.thinking=true.
+ * These models do NOT support function-calling tools simultaneously —
+ * the NVIDIA API returns 400 when both are present in the same request.
+ */
+const NVIDIA_THINKING_MODELS = new Set([
+    'moonshotai/kimi-k2.5',
+    'deepseek-ai/deepseek-r1',
+]);
+
 export function createAgentLoop({ model, tools, permissions, settings, hooks }) {
     const contextManager = new ContextManager(settings.maxContextTokens || 180000);
 
@@ -22,6 +33,7 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks }) 
     const state = {
         messages: [],
         systemPrompt: promptResult.full,
+        systemPromptStatic: promptResult.staticPrefix,  // tool-free prefix for providers that don't use tools
         turnCount: 0,
         tokenUsage: { input: 0, output: 0 },
         model,
@@ -54,14 +66,16 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks }) 
 
         yield { type: 'stream_request_start', turn: state.turnCount };
 
-        // Detect provider and call API
-        const provider = detectProvider(model);
+        // Detect provider and call API — read state.model so that model
+        // switches (via handleModelSwitch) take effect on the next turn.
+        const currentModel = state.model;
+        const provider = detectProvider(currentModel);
         let response;
 
         try {
             if (settings.stream !== false) {
                 // Streaming mode
-                response = await callApiStreaming(provider, model, state, tools.list(), settings);
+                response = await callApiStreaming(provider, currentModel, state, tools.list(), settings);
                 const collectedContent = [];
                 let currentText = '';
                 let currentThinking = '';
@@ -88,7 +102,7 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks }) 
                 response = response.accumulated;
             } else {
                 // Non-streaming mode
-                response = await callApi(provider, model, state, tools.list(), settings);
+                response = await callApi(provider, currentModel, state, tools.list(), settings);
             }
         } catch (err) {
             yield { type: 'error', message: err.message };
@@ -385,12 +399,26 @@ async function callNvidia(model, state, toolDefs, settings, stream) {
     const apiKey = process.env.NVIDIA_API_KEY;
     if (!apiKey) throw new Error('NVIDIA_API_KEY not set');
 
-    // Build OpenAI-style messages
-    const messages = buildOpenAIMessages(state);
+    // Models that support extended thinking via chat_template_kwargs.
+    // Per NVIDIA NIM documentation, these models do NOT support function
+    // calling simultaneously with thinking — tools must be omitted.
+    const supportsThinking = NVIDIA_THINKING_MODELS.has(model);
 
-    // Models that support thinking via chat_template_kwargs
-    const THINKING_MODELS = new Set(['moonshotai/kimi-k2.5', 'deepseek-ai/deepseek-r1']);
-    const supportsThinking = THINKING_MODELS.has(model);
+    // For thinking models the tool-list suffix in the system prompt would be
+    // misleading (no tools are sent), so use the static prefix only.
+    let systemPrompt = state.systemPrompt;
+    if (supportsThinking) {
+        if (!state.systemPromptStatic) {
+            process.stderr.write('[open-claude-code] Warning: systemPromptStatic missing — falling back to full system prompt for ' + model + '\n');
+        }
+        systemPrompt = state.systemPromptStatic || state.systemPrompt;
+    }
+    const effectiveState = supportsThinking
+        ? { ...state, systemPrompt }
+        : state;
+
+    // Build OpenAI-style messages
+    const messages = buildOpenAIMessages(effectiveState);
 
     const body = {
         model,
@@ -402,8 +430,9 @@ async function callNvidia(model, state, toolDefs, settings, stream) {
         ...(supportsThinking && {
             chat_template_kwargs: { thinking: true },
         }),
-        // Include tools if provided
-        ...(toolDefs.length > 0 && {
+        // Only include tools for non-thinking models — NVIDIA NIM rejects
+        // the combination of chat_template_kwargs.thinking + tools.
+        ...(!supportsThinking && toolDefs.length > 0 && {
             tools: toolDefs.map(t => ({
                 type: 'function',
                 function: { name: t.name, description: t.description, parameters: t.input_schema },
@@ -557,6 +586,11 @@ async function* streamOpenAIResponse(response) {
 
                 let chunk;
                 try { chunk = JSON.parse(raw); } catch { continue; }
+
+                // Surface API errors returned inside the SSE stream (HTTP 200 with error body)
+                if (chunk.error) {
+                    throw new Error(chunk.error.message || JSON.stringify(chunk.error));
+                }
 
                 const delta = chunk.choices?.[0]?.delta;
                 if (!delta) continue;
