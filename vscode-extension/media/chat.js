@@ -21,13 +21,17 @@
     // ── State ────────────────────────────────────────────────────────────────
     let isLoading = false;
     let currentStreamMsg = null; // DOM element being streamed into
-    let contextFiles = [];       // { name, path }
+    let contextFiles = [];       // { name, path, pinned?, isImage?, isCodebase? }
     let tokenStats = { input: 0, output: 0 };
     let costTotal = 0;
     let startTime = Date.now();
     let currentModel = '';
     let pendingApply = null;     // { code, language }
     let activeToolCards = {};    // toolName -> dom element
+    let sessionMessages = [];    // tracked messages for history saving
+    let lastUserMessage = '';    // for ↑ recall and regenerate
+    let autoScroll = true;       // auto-scroll while streaming
+    let pinnedFiles = [];        // files pinned across sessions
 
     // ── DOM refs ─────────────────────────────────────────────────────────────
     const messagesEl   = document.getElementById('messages');
@@ -55,12 +59,50 @@
     const thinkingToggleEl      = document.getElementById('thinking-toggle');
     const thinkingToggleWrapper = document.getElementById('thinking-toggle-wrapper');
     const thinkingLabelEl       = document.getElementById('thinking-label');
+    const settingsBtn   = document.getElementById('settings-btn');
+    const historyBtn    = document.getElementById('history-btn');
+    const historyPanel  = document.getElementById('history-panel');
+    const historyList   = document.getElementById('history-list');
+    const historySessionView = document.getElementById('history-session-view');
+    const historyCloseBtn = document.getElementById('history-close-btn');
+    const historyBackBtn  = document.getElementById('history-back-btn');
+    const historyPanelTitle = document.getElementById('history-panel-title');
+
+    const autoscrollBtn  = document.getElementById('autoscroll-btn');
+    const exportBtn      = document.getElementById('export-btn');
+    const searchBar      = document.getElementById('search-bar');
+    const searchInput    = document.getElementById('search-input');
+    const searchCount    = document.getElementById('search-count');
+    const searchPrevBtn  = document.getElementById('search-prev');
+    const searchNextBtn  = document.getElementById('search-next');
+    const searchCloseBtn = document.getElementById('search-close');
+    const contextBarEl   = document.getElementById('context-bar');
+    const contextUsedEl  = document.getElementById('context-used');
+    const contextMaxEl   = document.getElementById('context-max');
+    const contextFillEl  = document.getElementById('context-bar-fill');
 
     /** Models that support NVIDIA thinking mode toggle */
     const THINKING_CAPABLE_MODELS = new Set([
         'moonshotai/kimi-k2.5',
         'deepseek-ai/deepseek-r1',
     ]);
+
+    /** Approximate max context tokens per model */
+    const MODEL_CONTEXT = {
+        'claude-sonnet-4-6':                           200000,
+        'claude-opus-4-6':                             200000,
+        'claude-haiku-4-5':                            200000,
+        'gpt-4o':                                      128000,
+        'gpt-4o-mini':                                 128000,
+        'gemini-2.0-flash':                           1000000,
+        'moonshotai/kimi-k2.5':                        128000,
+        'deepseek-ai/deepseek-r1':                      64000,
+        'nvidia/llama-3.1-nemotron-70b-instruct':      128000,
+        'meta/llama-3.1-405b-instruct':                128000,
+        'meta/llama-3.3-70b-instruct':                 128000,
+        'mistralai/mistral-large-2-instruct':          128000,
+        'mistralai/mixtral-8x22b-instruct-v0.1':        64000,
+    };
 
     // ── Tick elapsed time ────────────────────────────────────────────────────
     setInterval(() => {
@@ -373,7 +415,9 @@
             const entry = codeStore.get(blockId);
             if (!entry) return;
             pendingApply = { code: entry.code, language: entry.language };
-            showApplyModal(entry.code);
+            // Show preview immediately; diff will arrive when extension reads active file
+            showApplyModal(entry.code, null, null);
+            vscode.postMessage({ type: 'getActiveFileContent' });
         }
     });
 
@@ -393,9 +437,67 @@
         pendingApply = null;
     }
 
-    function showApplyModal(code) {
-        const preview = code.length > 2000 ? code.slice(0, 2000) + '\n…' : code;
-        applyModalBody.innerHTML = buildCodeBlockHtml(preview, pendingApply.language);
+    /**
+     * LCS-based line diff. Returns array of {type:'equal'|'add'|'remove', line}.
+     * Falls back to showing all new lines when files are too large.
+     */
+    function computeDiff(aLines, bLines) {
+        if (aLines.length * bLines.length > 400000) {
+            return bLines.map(l => ({ type: 'add', line: l }));
+        }
+        const n = aLines.length, m = bLines.length;
+        const dp = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+        for (let i = 1; i <= n; i++) {
+            for (let j = 1; j <= m; j++) {
+                dp[i][j] = aLines[i - 1] === bLines[j - 1]
+                    ? dp[i - 1][j - 1] + 1
+                    : Math.max(dp[i - 1][j], dp[i][j - 1]);
+            }
+        }
+        const result = [];
+        let i = n, j = m;
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0 && aLines[i - 1] === bLines[j - 1]) {
+                result.unshift({ type: 'equal',  line: aLines[i - 1] }); i--; j--;
+            } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+                result.unshift({ type: 'add',    line: bLines[j - 1] }); j--;
+            } else {
+                result.unshift({ type: 'remove', line: aLines[i - 1] }); i--;
+            }
+        }
+        return result;
+    }
+
+    function buildDiffView(diff) {
+        const container = document.createElement('div');
+        container.className = 'diff-view';
+        const pre = document.createElement('pre');
+        for (const { type, line } of diff) {
+            const span = document.createElement('span');
+            span.className = 'diff-line diff-' + type;
+            span.textContent = (type === 'add' ? '+ ' : type === 'remove' ? '- ' : '  ') + line;
+            pre.appendChild(span);
+            pre.appendChild(document.createTextNode('\n'));
+        }
+        container.appendChild(pre);
+        return container;
+    }
+
+    function showApplyModal(newCode, oldContent, fileName) {
+        const titleEl = document.getElementById('apply-modal-title');
+        if (titleEl) {
+            titleEl.textContent = (oldContent !== null && oldContent !== undefined)
+                ? `Review changes — ${fileName || 'active file'}`
+                : 'Apply code to file';
+        }
+        applyModalBody.innerHTML = '';
+        if (oldContent !== null && oldContent !== undefined) {
+            const diff = computeDiff(oldContent.split('\n'), newCode.split('\n'));
+            applyModalBody.appendChild(buildDiffView(diff));
+        } else {
+            const preview = newCode.length > 2000 ? newCode.slice(0, 2000) + '\n…' : newCode;
+            applyModalBody.innerHTML = buildCodeBlockHtml(preview, pendingApply ? pendingApply.language : '');
+        }
         applyModal.classList.add('visible');
     }
 
@@ -432,6 +534,38 @@
         });
     }
 
+    // ── Copy button helper ────────────────────────────────────────────────────
+    function addCopyButtonToMessage(msgDiv, rawText, userPrompt) {
+        const header = msgDiv.querySelector('.msg-header');
+        if (!header || header.querySelector('.msg-copy-btn')) return;
+        const btn = document.createElement('button');
+        btn.className = 'msg-copy-btn';
+        btn.title = 'Copy answer';
+        btn.textContent = '⎘ Copy';
+        btn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'copyToClipboard', text: rawText });
+            btn.textContent = '✓ Copied';
+            btn.classList.add('copied');
+            setTimeout(() => {
+                btn.textContent = '⎘ Copy';
+                btn.classList.remove('copied');
+            }, 1500);
+        });
+        header.appendChild(btn);
+
+        if (userPrompt) {
+            const regenBtn = document.createElement('button');
+            regenBtn.className = 'msg-regen-btn';
+            regenBtn.title = 'Regenerate response';
+            regenBtn.textContent = '↺';
+            regenBtn.addEventListener('click', () => {
+                if (isLoading) return;
+                regenerateFrom(msgDiv, userPrompt);
+            });
+            header.appendChild(regenBtn);
+        }
+    }
+
     // ── Message rendering ─────────────────────────────────────────────────────
     function hideWelcome() {
         if (welcomeEl && !welcomeEl.classList.contains('hidden')) {
@@ -440,6 +574,7 @@
     }
 
     function scrollToBottom() {
+        if (!autoScroll) return;
         requestAnimationFrame(() => {
             messagesEl.scrollTop = messagesEl.scrollHeight;
         });
@@ -448,12 +583,30 @@
     function addUserMessage(text) {
         hideWelcome();
         currentStreamMsg = null;
+        lastUserMessage = text;
+        sessionMessages.push({ type: 'user', text });
+
         const div = document.createElement('div');
         div.className = 'msg msg-user';
-        div.innerHTML = `
-            <div class="msg-meta">You</div>
-            <div class="msg-bubble">${escapeHtml(text)}</div>
-        `;
+        div._sessionIdx = sessionMessages.length - 1;
+
+        const meta = document.createElement('div');
+        meta.className = 'msg-meta';
+        meta.appendChild(document.createTextNode('You'));
+
+        const editBtn = document.createElement('button');
+        editBtn.className = 'msg-edit-btn';
+        editBtn.title = 'Edit message';
+        editBtn.textContent = '✏';
+        editBtn.addEventListener('click', () => editUserMessage(div, text));
+        meta.appendChild(editBtn);
+
+        const bubble = document.createElement('div');
+        bubble.className = 'msg-bubble';
+        bubble.textContent = text;   // safe — textContent
+
+        div.appendChild(meta);
+        div.appendChild(bubble);
         messagesEl.appendChild(div);
         scrollToBottom();
     }
@@ -463,6 +616,7 @@
         hideWelcome();
         const div = document.createElement('div');
         div.className = 'msg msg-assistant';
+        div._regenPrompt = lastUserMessage;    // capture for regenerate
         div.innerHTML = `
             <div class="msg-header">
                 <div class="msg-avatar">✦</div>
@@ -500,6 +654,12 @@
             currentStreamMsg.innerHTML = raw ? renderMarkdown(raw) : '';
             currentStreamMsg.classList.remove('streaming-cursor');
             currentStreamMsg._rawText = '';
+            // Add copy + regenerate buttons + track in history
+            if (raw) {
+                const msgDiv = currentStreamMsg.closest('.msg-assistant');
+                if (msgDiv) addCopyButtonToMessage(msgDiv, raw, msgDiv._regenPrompt);
+                sessionMessages.push({ type: 'assistant', text: raw });
+            }
             currentStreamMsg = null;
         } else if (content) {
             hideWelcome();
@@ -512,6 +672,8 @@
                 </div>
                 <div class="msg-content">${renderMarkdown(content)}</div>
             `;
+            addCopyButtonToMessage(div, content);
+            sessionMessages.push({ type: 'assistant', text: content });
             messagesEl.appendChild(div);
         }
         scrollToBottom();
@@ -662,7 +824,213 @@
         scrollToBottom();
     }
 
-    // ── Handle messages from extension ────────────────────────────────────────
+    // ── Edit user message ─────────────────────────────────────────────────────
+    function editUserMessage(msgDiv, originalText) {
+        if (isLoading) return;
+        const bubble = msgDiv.querySelector('.msg-bubble');
+        if (!bubble) return;
+
+        const ta = document.createElement('textarea');
+        ta.className = 'msg-user-edit-area';
+        ta.value = originalText;
+        ta.rows = 3;
+
+        const actionsRow = document.createElement('div');
+        actionsRow.className = 'msg-user-edit-actions';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'modal-btn';
+        cancelBtn.textContent = 'Cancel';
+
+        const confirmBtn = document.createElement('button');
+        confirmBtn.className = 'modal-btn primary';
+        confirmBtn.textContent = '↵ Resend';
+
+        actionsRow.appendChild(cancelBtn);
+        actionsRow.appendChild(confirmBtn);
+
+        bubble.replaceWith(ta);
+        msgDiv.appendChild(actionsRow);
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+
+        cancelBtn.addEventListener('click', () => {
+            ta.replaceWith(bubble);
+            actionsRow.remove();
+        });
+        confirmBtn.addEventListener('click', confirmEdit);
+        ta.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmEdit(); }
+            if (e.key === 'Escape') { ta.replaceWith(bubble); actionsRow.remove(); }
+        });
+
+        function confirmEdit() {
+            const newText = ta.value.trim();
+            if (!newText) return;
+
+            bubble.textContent = newText;
+            ta.replaceWith(bubble);
+            actionsRow.remove();
+            msgDiv._originalText = newText;
+            // Update edit button closure
+            const eb = msgDiv.querySelector('.msg-edit-btn');
+            if (eb) eb.onclick = null;
+            if (eb) eb.addEventListener('click', () => editUserMessage(msgDiv, newText));
+
+            // Remove all DOM messages after this one
+            let el = msgDiv.nextElementSibling;
+            while (el) { const nx = el.nextElementSibling; el.remove(); el = nx; }
+
+            // Truncate sessionMessages to this user message (inclusive)
+            const idx = typeof msgDiv._sessionIdx === 'number' ? msgDiv._sessionIdx : -1;
+            if (idx >= 0) sessionMessages.splice(idx);
+            sessionMessages.push({ type: 'user', text: newText });
+            msgDiv._sessionIdx = sessionMessages.length - 1;
+
+            lastUserMessage = newText;
+            setSending(true);
+            setLoading(true, 'Thinking…');
+            vscode.postMessage({ type: 'send', message: newText, contextFiles: [], fileRefs: [] });
+        }
+    }
+
+    // ── Regenerate response ───────────────────────────────────────────────────
+    function regenerateFrom(assistantMsgDiv, userPrompt) {
+        // Remove this assistant message and everything after it from the DOM
+        let el = assistantMsgDiv;
+        while (el) { const nx = el.nextElementSibling; el.remove(); el = nx; }
+
+        // Truncate sessionMessages: remove the last assistant entry(s) for this prompt
+        const lastUserIdx = [...sessionMessages].reduceRight((found, m, i) =>
+            found === -1 && m.type === 'user' && m.text === userPrompt ? i : found, -1);
+        if (lastUserIdx >= 0) sessionMessages.splice(lastUserIdx + 1);
+
+        lastUserMessage = userPrompt;
+        setSending(true);
+        setLoading(true, 'Thinking…');
+        vscode.postMessage({ type: 'send', message: userPrompt, contextFiles: [], fileRefs: [] });
+    }
+
+    // ── @codebase chip ────────────────────────────────────────────────────────
+    function addCodebaseContext() {
+        if (contextFiles.find(f => f.isCodebase)) return;
+        contextFiles.push({ name: '@codebase', path: '__codebase__', isCodebase: true });
+        renderContextFiles();
+    }
+
+    // ── Image paste chip ──────────────────────────────────────────────────────
+    function addImageContext(name, dataUrl) {
+        if (!contextFilesEl) return;
+        contextFiles.push({ name, path: `__img__:${name}`, isImage: true, dataUrl });
+        renderContextFiles();
+    }
+
+    // ── Toggle pin on a context file ─────────────────────────────────────────
+    function togglePinFile(file) {
+        file.pinned = !file.pinned;
+        if (file.pinned) {
+            if (!pinnedFiles.find(p => p.path === file.path))
+                pinnedFiles.push({ name: file.name, path: file.path });
+            vscode.postMessage({ type: 'pinFile', path: file.path });
+        } else {
+            pinnedFiles = pinnedFiles.filter(p => p.path !== file.path);
+            vscode.postMessage({ type: 'unpinFile', path: file.path });
+        }
+        renderContextFiles();
+    }
+
+    // ── Context window usage bar ──────────────────────────────────────────────
+    function updateContextBar() {
+        if (!contextBarEl || !contextUsedEl || !contextMaxEl || !contextFillEl) return;
+        const used = (tokenStats.input || 0) + (tokenStats.output || 0);
+        const max  = MODEL_CONTEXT[currentModel] || 200000;
+        const pct  = Math.min((used / max) * 100, 100);
+        contextUsedEl.textContent = used >= 1000 ? `${(used / 1000).toFixed(1)}k` : String(used);
+        contextMaxEl.textContent  = `${(max  / 1000).toFixed(0)}k`;
+        contextFillEl.style.width      = pct + '%';
+        contextFillEl.style.background = pct > 95 ? 'var(--error-text)'
+                                       : pct > 80 ? 'var(--warning)'
+                                       : 'var(--success)';
+        contextBarEl.style.display = used > 0 ? '' : 'none';
+    }
+
+    // ── Conversation search ───────────────────────────────────────────────────
+    let searchMatches = [];
+    let searchCurrentIdx = -1;
+
+    function showSearchBar() {
+        if (!searchBar) return;
+        searchBar.style.display = '';
+        if (searchInput) { searchInput.focus(); searchInput.select(); }
+    }
+
+    function hideSearchBar() {
+        if (!searchBar) return;
+        searchBar.style.display = 'none';
+        clearSearchHighlights();
+        if (searchInput) searchInput.value = '';
+        if (searchCount) searchCount.textContent = '';
+    }
+
+    function clearSearchHighlights() {
+        messagesEl.querySelectorAll('.search-match, .search-match-current').forEach(el => {
+            el.classList.remove('search-match', 'search-match-current');
+        });
+        searchMatches = [];
+        searchCurrentIdx = -1;
+    }
+
+    function performSearch(query) {
+        clearSearchHighlights();
+        if (!query || query.length < 2) {
+            if (searchCount) searchCount.textContent = '';
+            return;
+        }
+        const lq = query.toLowerCase();
+        messagesEl.querySelectorAll('.msg-user, .msg-assistant').forEach(el => {
+            if ((el.textContent || '').toLowerCase().includes(lq)) {
+                el.classList.add('search-match');
+                searchMatches.push(el);
+            }
+        });
+        if (searchMatches.length > 0) {
+            searchCurrentIdx = 0;
+            searchMatches[0].classList.add('search-match-current');
+            searchMatches[0].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+        if (searchCount) {
+            searchCount.textContent = searchMatches.length > 0
+                ? `${searchCurrentIdx + 1}/${searchMatches.length}`
+                : 'No results';
+        }
+    }
+
+    function searchNav(dir) {
+        if (searchMatches.length === 0) return;
+        searchMatches[searchCurrentIdx]?.classList.remove('search-match-current');
+        searchCurrentIdx = (searchCurrentIdx + dir + searchMatches.length) % searchMatches.length;
+        searchMatches[searchCurrentIdx].classList.add('search-match-current');
+        searchMatches[searchCurrentIdx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        if (searchCount) searchCount.textContent = `${searchCurrentIdx + 1}/${searchMatches.length}`;
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('input', () => performSearch(searchInput.value.trim()));
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); searchNav(e.shiftKey ? -1 : 1); }
+            if (e.key === 'Escape') hideSearchBar();
+        });
+    }
+    if (searchPrevBtn)  searchPrevBtn.addEventListener('click',  () => searchNav(-1));
+    if (searchNextBtn)  searchNextBtn.addEventListener('click',  () => searchNav(1));
+    if (searchCloseBtn) searchCloseBtn.addEventListener('click', hideSearchBar);
+
+    document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+            e.preventDefault();
+            showSearchBar();
+        }
+    });
     window.addEventListener('message', (event) => {
         const msg = event.data;
         switch (msg.type) {
@@ -718,6 +1086,7 @@
                 tokenStats = msg.tokens || tokenStats;
                 costTotal = msg.cost || costTotal;
                 updateStats();
+                updateContextBar();
                 break;
 
             case 'modelChanged':
@@ -725,6 +1094,7 @@
                 if (modelSelect) modelSelect.value = msg.model || '';
                 syncThinkingToggleVisibility(currentModel);
                 updateStats();
+                updateContextBar();
                 break;
 
             case 'sessionCleared':
@@ -732,15 +1102,54 @@
                 if (welcomeEl) welcomeEl.classList.remove('hidden');
                 currentStreamMsg = null;
                 activeToolCards = {};
+                sessionMessages = [];
                 tokenStats = { input: 0, output: 0 };
                 costTotal = 0;
                 startTime = Date.now();
+                // Restore pinned files into context
+                contextFiles = pinnedFiles.map(f => ({ ...f, pinned: true }));
+                renderContextFiles();
                 updateStats();
+                updateContextBar();
+                break;
+
+            case 'historyData':
+                renderHistoryList(msg.sessions || []);
+                break;
+
+            case 'sessionData':
+                renderHistorySession(msg.messages || []);
                 break;
 
             case 'fileContent':
-                // File was added to context
                 addContextFile(msg.name, msg.path);
+                break;
+
+            case 'activeFileContent':
+                // Arrives after user clicks "Apply to file…"
+                if (pendingApply && applyModal.classList.contains('visible')) {
+                    showApplyModal(pendingApply.code, msg.content, msg.fileName);
+                }
+                break;
+
+            case 'pinnedFiles':
+                pinnedFiles = (msg.files || []);
+                for (const f of pinnedFiles) {
+                    addContextFile(f.name, f.path, true);
+                }
+                break;
+
+            case 'inlineEditRequest':
+                if (inputEl && msg.selectedText) {
+                    const ctx = msg.hasSelection
+                        ? `Edit this code from \`${msg.fileName}\`:\n\`\`\`\n${msg.selectedText}\n\`\`\`\n\nInstruction: `
+                        : `Regarding \`${msg.fileName}\`: `;
+                    inputEl.value = ctx;
+                    inputEl.style.height = 'auto';
+                    inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+                    inputEl.focus();
+                    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+                }
                 break;
 
             case 'initialized':
@@ -753,11 +1162,13 @@
                 }
                 syncThinkingToggleVisibility(currentModel);
                 updateStats();
+                updateContextBar();
                 showWelcome(!!msg.hasApiKey);
+                // Load pinned files from settings
+                vscode.postMessage({ type: 'getPinnedFiles' });
                 break;
 
             case 'apiKeySet':
-                // Key was just saved — upgrade welcome screen without reload
                 showWelcome(true);
                 break;
 
@@ -849,14 +1260,19 @@
     }
 
     // ── Context files ─────────────────────────────────────────────────────────
-    function addContextFile(name, filePath) {
-        // Avoid duplicates
+    function addContextFile(name, filePath, pinned = false) {
         if (contextFiles.find(f => f.path === filePath)) return;
-        contextFiles.push({ name, path: filePath });
+        contextFiles.push({ name, path: filePath, pinned });
         renderContextFiles();
     }
 
     function removeContextFile(filePath) {
+        const file = contextFiles.find(f => f.path === filePath);
+        if (file && file.pinned) {
+            // Unpin when removed
+            pinnedFiles = pinnedFiles.filter(p => p.path !== filePath);
+            vscode.postMessage({ type: 'unpinFile', path: filePath });
+        }
         contextFiles = contextFiles.filter(f => f.path !== filePath);
         renderContextFiles();
         vscode.postMessage({ type: 'removeContextFile', path: filePath });
@@ -867,26 +1283,42 @@
         contextFilesEl.innerHTML = '';
         for (const f of contextFiles) {
             const chip = document.createElement('div');
-            chip.className = 'context-chip';
+            chip.className = 'context-chip' + (f.pinned ? ' pinned' : '');
 
             const nameSpan = document.createElement('span');
-            nameSpan.textContent = '📄 ' + f.name;   // safe — textContent
+            const icon = f.isImage ? '🖼 ' : f.isCodebase ? '' : (f.pinned ? '📌 ' : '📄 ');
+            nameSpan.textContent = icon + f.name;
+
+            if (f.isImage && f.dataUrl) {
+                const img = document.createElement('img');
+                // dataUrl is always a data: URI from FileReader.readAsDataURL — validate before use
+                if (/^data:image\/[a-z]+;base64,/.test(f.dataUrl)) {
+                    img.src = f.dataUrl;
+                }
+                img.alt = f.name;
+                chip.appendChild(img);
+            }
+
+            if (!f.isCodebase && !f.isImage) {
+                const pinBtn = document.createElement('button');
+                pinBtn.className = 'pin-btn';
+                pinBtn.title = f.pinned ? 'Unpin file' : 'Pin to all sessions';
+                pinBtn.textContent = '📎';
+                pinBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePinFile(f); });
+                chip.appendChild(nameSpan);
+                chip.appendChild(pinBtn);
+            } else {
+                chip.appendChild(nameSpan);
+            }
 
             const removeBtn = document.createElement('button');
             removeBtn.textContent = '×';
-            // Capture path via closure; no attribute injection
             removeBtn.addEventListener('click', () => removeContextFile(f.path));
-
-            chip.appendChild(nameSpan);
             chip.appendChild(removeBtn);
             contextFilesEl.appendChild(chip);
         }
         contextFilesEl.style.display = contextFiles.length ? 'flex' : 'none';
     }
-
-    // No longer needed as a global since we use closures above
-    // window._removeCtx kept as no-op for any residual references
-    window._removeCtx = removeContextFile;
 
     // ── Input handling ────────────────────────────────────────────────────────
     if (inputEl) {
@@ -895,14 +1327,31 @@
             inputEl.style.height = 'auto';
             inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
 
-            // @mention autocomplete
             const val = inputEl.value;
             const cursorPos = inputEl.selectionStart;
             const before = val.slice(0, cursorPos);
+
+            // @codebase special mention — replace with chip immediately
+            if (val.includes('@codebase')) {
+                inputEl.value = val.replace(/@codebase\b/g, '').trim();
+                inputEl.style.height = 'auto';
+                inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+                addCodebaseContext();
+                hideAutocomplete();
+                return;
+            }
+
+            // Slash command autocomplete (when first char is /)
+            const slashMatch = val.match(/^(\/[\w]*)$/);
+            if (slashMatch) {
+                showSlashCommands(slashMatch[1].slice(1));
+                return;
+            }
+
+            // @mention autocomplete
             const atMatch = before.match(/@([\w./\\-]*)$/);
             if (atMatch) {
-                const query = atMatch[1];
-                showFileAutocomplete(query);
+                showFileAutocomplete(atMatch[1]);
             } else {
                 hideAutocomplete();
             }
@@ -926,10 +1375,61 @@
                 }
                 if (e.key === 'Escape') { hideAutocomplete(); return; }
             }
+            // Up arrow in empty input → recall last message
+            if (e.key === 'ArrowUp' && !inputEl.value && !autocompleteEl.classList.contains('visible')) {
+                if (lastUserMessage) {
+                    e.preventDefault();
+                    inputEl.value = lastUserMessage;
+                    inputEl.style.height = 'auto';
+                    inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+                    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+                }
+                return;
+            }
             // Escape cancels loading
             if (e.key === 'Escape' && isLoading) {
                 vscode.postMessage({ type: 'cancel' });
                 setSending(false);
+            }
+        });
+
+        // Image paste
+        inputEl.addEventListener('paste', (e) => {
+            const items = [...(e.clipboardData?.items || [])];
+            const imgItem = items.find(it => it.type.startsWith('image/'));
+            if (!imgItem) return;
+            e.preventDefault();
+            const file = imgItem.getAsFile();
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => addImageContext(file.name || 'screenshot.png', ev.target.result);
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // ── Drag-and-drop files onto input ────────────────────────────────────────
+    const inputWrapper = document.getElementById('input-wrapper');
+    if (inputWrapper) {
+        const CODE_EXTS = new Set([
+            'js','ts','jsx','tsx','py','go','rs','java','cpp','c','h','cs','rb',
+            'php','swift','kt','scala','sh','bash','zsh','md','json','yaml','yml',
+            'toml','html','css','scss','less','vue','svelte','sql','graphql','tf','txt',
+        ]);
+        inputWrapper.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            inputWrapper.classList.add('drag-over');
+        });
+        inputWrapper.addEventListener('dragleave', () => inputWrapper.classList.remove('drag-over'));
+        inputWrapper.addEventListener('drop', (e) => {
+            e.preventDefault();
+            inputWrapper.classList.remove('drag-over');
+            const files = [...(e.dataTransfer?.files || [])];
+            for (const file of files) {
+                const ext = (file.name.split('.').pop() || '').toLowerCase();
+                if (CODE_EXTS.has(ext)) {
+                    const filePath = file.path || file.name;
+                    vscode.postMessage({ type: 'addContextFile', path: filePath, name: file.name });
+                }
             }
         });
     }
@@ -947,29 +1447,34 @@
 
     function submitMessage() {
         if (!inputEl) return;
-        const text = inputEl.value.trim();
-        if (!text || isLoading) return;
+        const rawText = inputEl.value.trim();
+        if (!rawText || isLoading) return;
 
         // Extract @file references from text before sending
         const fileRefs = [];
-        text.replace(/@([\w./\\-]+)/g, (_, p) => fileRefs.push(p));
+        rawText.replace(/@([\w./\\-]+)/g, (_, p) => fileRefs.push(p));
 
-        addUserMessage(text);
+        addUserMessage(rawText);
         inputEl.value = '';
         inputEl.style.height = 'auto';
         hideAutocomplete();
         setSending(true);
         setLoading(true, 'Thinking…');
 
+        // Separate file paths from image/codebase context entries
+        const sendContextFiles = contextFiles.filter(f => !f.isImage && !f.isCodebase).map(f => f.path);
+        const hasCodebase = contextFiles.some(f => f.isCodebase);
+
         vscode.postMessage({
             type: 'send',
-            message: text,
-            contextFiles: contextFiles.map(f => f.path),
+            message: rawText,
+            contextFiles: sendContextFiles,
             fileRefs,
+            useCodebase: hasCodebase,
         });
 
-        // Clear context files after send
-        contextFiles = [];
+        // Clear non-pinned context after send
+        contextFiles = contextFiles.filter(f => f.pinned);
         renderContextFiles();
     }
 
@@ -979,6 +1484,56 @@
 
     function showFileAutocomplete(query) {
         vscode.postMessage({ type: 'fileSearch', query });
+    }
+
+    // ── Slash command autocomplete ─────────────────────────────────────────────
+    const SLASH_COMMANDS = [
+        { cmd: '/clear',  desc: 'Clear conversation and start fresh' },
+        { cmd: '/model',  desc: 'Switch AI model' },
+        { cmd: '/export', desc: 'Export conversation as Markdown' },
+        { cmd: '/help',   desc: 'Show keyboard shortcuts' },
+        { cmd: '/pin',    desc: 'Pin all current context files to every session' },
+    ];
+
+    function showSlashCommands(prefix) {
+        const filtered = SLASH_COMMANDS.filter(c => c.cmd.slice(1).startsWith(prefix));
+        if (!filtered.length) { hideAutocomplete(); return; }
+        acItems = filtered.map(c => ({ isSlash: true, cmd: c.cmd, desc: c.desc }));
+        acSelectedIdx = 0;
+        autocompleteEl.innerHTML = '';
+        for (let i = 0; i < filtered.length; i++) {
+            const c = filtered[i];
+            const item = document.createElement('div');
+            item.className = 'ac-item' + (i === 0 ? ' selected' : '');
+            const cmdSpan = document.createElement('span');
+            cmdSpan.className = 'ac-name';
+            cmdSpan.style.fontWeight = '600';
+            cmdSpan.textContent = c.cmd;
+            const descSpan = document.createElement('span');
+            descSpan.className = 'ac-desc';
+            descSpan.textContent = c.desc;
+            item.appendChild(cmdSpan);
+            item.appendChild(descSpan);
+            item.addEventListener('click', () => { acSelectedIdx = i; selectAcItem(); });
+            autocompleteEl.appendChild(item);
+        }
+        autocompleteEl.classList.add('visible');
+    }
+
+    function executeSlashCommand(cmd) {
+        switch (cmd) {
+            case '/clear':   newChatBtn && newChatBtn.click(); break;
+            case '/model':   modelSelect && modelSelect.focus(); break;
+            case '/export':  exportBtn && exportBtn.click(); break;
+            case '/pin':     contextFiles.filter(f => !f.pinned).forEach(f => togglePinFile(f)); break;
+            case '/help':
+                addSystemMessage(
+                    'Keyboard shortcuts: Enter=send · Shift+Enter=newline · @=add file · ' +
+                    '@codebase=full codebase · /=commands · ↑=recall last message · ' +
+                    'Ctrl+F=search · Ctrl+K=inline edit · Esc=stop'
+                );
+                break;
+        }
     }
 
     function renderAutocomplete(files) {
@@ -1020,8 +1575,19 @@
 
     function selectAcItem() {
         if (acSelectedIdx < 0 || acSelectedIdx >= acItems.length) return;
-        const file = acItems[acSelectedIdx];
-        // Replace the @query in input
+        const item = acItems[acSelectedIdx];
+
+        // Slash command selection
+        if (item.isSlash) {
+            inputEl.value = '';
+            inputEl.style.height = 'auto';
+            hideAutocomplete();
+            executeSlashCommand(item.cmd);
+            return;
+        }
+
+        // File selection — replace @query in input
+        const file = item;
         const val = inputEl.value;
         const cursorPos = inputEl.selectionStart;
         const before = val.slice(0, cursorPos);
@@ -1029,14 +1595,148 @@
         inputEl.value = replaced + val.slice(cursorPos);
         inputEl.setSelectionRange(replaced.length, replaced.length);
         hideAutocomplete();
-        // Add to context
         vscode.postMessage({ type: 'addContextFile', path: file.path, name: file.name });
+    }
+
+    // ── History Panel ─────────────────────────────────────────────────────────
+    function openHistoryPanel() {
+        if (historyPanel) historyPanel.classList.add('visible');
+        if (historySessionView) historySessionView.classList.remove('visible');
+        if (historyList) historyList.style.display = '';
+        if (historyBackBtn) historyBackBtn.style.display = 'none';
+        if (historyPanelTitle) historyPanelTitle.textContent = 'Chat History';
+        vscode.postMessage({ type: 'getHistory' });
+    }
+
+    function closeHistoryPanel() {
+        if (historyPanel) historyPanel.classList.remove('visible');
+    }
+
+    function renderHistoryList(sessions) {
+        if (!historyList) return;
+        historyList.innerHTML = '';
+        if (sessions.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'history-empty';
+            empty.textContent = 'No saved conversations yet.\nStart a new chat and click "New" to save it to history.';
+            historyList.appendChild(empty);
+            return;
+        }
+        for (const session of sessions) {
+            const item = document.createElement('div');
+            item.className = 'history-item';
+
+            const titleEl = document.createElement('div');
+            titleEl.className = 'history-item-title';
+            titleEl.textContent = session.title || 'Untitled conversation';
+
+            const metaEl = document.createElement('div');
+            metaEl.className = 'history-item-meta';
+            const dateEl = document.createElement('span');
+            dateEl.textContent = new Date(session.createdAt).toLocaleString();
+            const countEl = document.createElement('span');
+            const msgCount = session.messageCount || 0;
+            countEl.textContent = `${msgCount} msg${msgCount !== 1 ? 's' : ''}`;
+            metaEl.appendChild(dateEl);
+            metaEl.appendChild(countEl);
+
+            const actionsEl = document.createElement('div');
+            actionsEl.className = 'history-item-actions';
+
+            const renameBtn = document.createElement('button');
+            renameBtn.className = 'history-action-btn';
+            renameBtn.title = 'Rename';
+            renameBtn.textContent = '✏';
+            renameBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const newTitle = window.prompt('Rename conversation:', session.title || '');
+                if (newTitle !== null && newTitle.trim()) {
+                    vscode.postMessage({ type: 'renameSession', id: session.id, title: newTitle.trim() });
+                }
+            });
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'history-action-btn history-delete-btn';
+            deleteBtn.title = 'Delete';
+            deleteBtn.textContent = '🗑';
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (window.confirm('Delete this conversation?')) {
+                    vscode.postMessage({ type: 'deleteSession', id: session.id });
+                }
+            });
+
+            actionsEl.appendChild(renameBtn);
+            actionsEl.appendChild(deleteBtn);
+
+            item.appendChild(titleEl);
+            item.appendChild(metaEl);
+            item.appendChild(actionsEl);
+            item.addEventListener('click', () => {
+                vscode.postMessage({ type: 'loadSession', id: session.id });
+            });
+            historyList.appendChild(item);
+        }
+    }
+
+    function renderHistorySession(messages) {
+        if (!historySessionView) return;
+        historySessionView.innerHTML = '';
+
+        for (const m of messages) {
+            if (m.type === 'user') {
+                const div = document.createElement('div');
+                div.className = 'msg msg-user';
+                div.innerHTML = `
+                    <div class="msg-meta">You</div>
+                    <div class="msg-bubble">${escapeHtml(m.text)}</div>
+                `;
+                historySessionView.appendChild(div);
+            } else if (m.type === 'assistant') {
+                const div = document.createElement('div');
+                div.className = 'msg msg-assistant';
+                div.innerHTML = `
+                    <div class="msg-header">
+                        <div class="msg-avatar">✦</div>
+                        <span class="msg-name">Claude</span>
+                    </div>
+                    <div class="msg-content">${renderMarkdown(m.text)}</div>
+                `;
+                addCopyButtonToMessage(div, m.text);
+                historySessionView.appendChild(div);
+            }
+        }
+
+        // Show session view, hide list
+        if (historyList) historyList.style.display = 'none';
+        historySessionView.classList.add('visible');
+        if (historyBackBtn) historyBackBtn.style.display = '';
+        if (historyPanelTitle) historyPanelTitle.textContent = 'Past Conversation';
+        historySessionView.scrollTop = 0;
+    }
+
+    if (historyBtn) historyBtn.addEventListener('click', openHistoryPanel);
+    if (historyCloseBtn) historyCloseBtn.addEventListener('click', closeHistoryPanel);
+    if (historyBackBtn) {
+        historyBackBtn.addEventListener('click', () => {
+            if (historySessionView) historySessionView.classList.remove('visible');
+            if (historyList) historyList.style.display = '';
+            if (historyBackBtn) historyBackBtn.style.display = 'none';
+            if (historyPanelTitle) historyPanelTitle.textContent = 'Chat History';
+        });
     }
 
     // ── Toolbar buttons ───────────────────────────────────────────────────────
     if (newChatBtn) {
         newChatBtn.addEventListener('click', () => {
+            if (sessionMessages.length > 0) {
+                vscode.postMessage({ type: 'saveSession', messages: [...sessionMessages] });
+                sessionMessages = [];
+            }
             vscode.postMessage({ type: 'clear' });
+            // Immediately restore pinned files for the new session
+            contextFiles = pinnedFiles.map(f => ({ ...f, pinned: true }));
+            renderContextFiles();
         });
     }
 
@@ -1045,6 +1745,55 @@
             vscode.postMessage({ type: 'pickFile' });
         });
     }
+
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'runCommand', command: 'workbench.action.openSettings', args: ['openClaudeCode'] });
+        });
+    }
+
+    // Export conversation as Markdown
+    if (exportBtn) {
+        exportBtn.addEventListener('click', () => {
+            if (sessionMessages.length === 0) return;
+            const lines = sessionMessages.map(m =>
+                m.type === 'user'
+                    ? `## You\n\n${m.text}`
+                    : `## Claude\n\n${m.text}`
+            );
+            const markdown = lines.join('\n\n---\n\n');
+            vscode.postMessage({ type: 'exportConversation', markdown });
+        });
+    }
+
+    // Auto-scroll toggle
+    if (autoscrollBtn) {
+        autoscrollBtn.addEventListener('click', () => {
+            autoScroll = !autoScroll;
+            autoscrollBtn.classList.toggle('locked', !autoScroll);
+            autoscrollBtn.title = autoScroll ? 'Auto-scroll: On (click to lock)' : 'Auto-scroll: Off (click to unlock)';
+            if (autoScroll) scrollToBottom();
+        });
+    }
+
+    // Re-enable auto-scroll when user scrolls to the bottom
+    messagesEl.addEventListener('scroll', () => {
+        const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 60;
+        if (atBottom && !autoScroll) {
+            autoScroll = true;
+            if (autoscrollBtn) {
+                autoscrollBtn.classList.remove('locked');
+                autoscrollBtn.title = 'Auto-scroll: On (click to lock)';
+            }
+        } else if (!atBottom && autoScroll && isLoading) {
+            // User scrolled up while response is streaming — pause auto-scroll
+            autoScroll = false;
+            if (autoscrollBtn) {
+                autoscrollBtn.classList.add('locked');
+                autoscrollBtn.title = 'Auto-scroll: Off (click to unlock)';
+            }
+        }
+    });
 
     if (modelSelect) {
         modelSelect.addEventListener('change', () => {

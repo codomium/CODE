@@ -72,6 +72,9 @@ code --install-extension open-claude-code-1.2.0.vsix
 - **`@claude` chat participant** — access Claude directly from VS Code's built-in Chat panel
 - **Full tool access** — all 25+ agent tools (Read, Write, Edit, Bash, Glob, Grep, WebFetch, …)
 - **Rich markdown + syntax highlighting** — code blocks with copy & Apply-to-file buttons
+- **Copy whole answer** — ⎘ Copy button on every assistant reply copies the full response to the clipboard
+- **Chat history** — History button shows all past conversations (Cursor-style panel); "New" auto-saves the current session; sessions persist across VS Code restarts
+- **⚙ Settings shortcut** — gear button in the header opens the extension settings directly — no need to navigate through the marketplace
 - **Streaming responses** — tokens arrive in real time with an animated cursor
 - **Tool visualization** — collapsible cards showing each tool execution and result
 - **`@file` context injection** — type `@filename` or click 📄 to add a file to the prompt
@@ -400,9 +403,15 @@ This is a **clean-room implementation** — no leaked source used. Architecture 
 
 ## 🆕 What's New
 
-### v1.2.0 — Proactive Workspace Analysis
+### v1.2.0 — Chat History, Settings Button & Copy Answer
 
-**Fix: Proactive workspace analysis for all models** _(this PR)_
+**New UI features** _(this PR)_
+- **⚙ Settings button** — a gear icon added to the chat header opens `openClaudeCode` settings directly; no more navigating through the Extensions marketplace
+- **⎘ Copy whole answer** — each finalized assistant reply now has a `⎘ Copy` button in the message header; one click copies the full raw markdown response to the clipboard
+- **Chat history panel (Cursor-style)** — clicking the new **History** header button opens a full-overlay panel listing all past sessions. Pressing **New** auto-saves the current conversation to history first. Sessions are persisted in VS Code `globalState` and survive restarts; up to 30 sessions are retained
+- **Cursor-style session navigation** — click any session in the history list to view its messages read-only (with Copy buttons intact); a Back button returns to the session list
+
+**Fix: Proactive workspace analysis for all models**
 - All models now receive a strong agentic system prompt declaring the workspace `cwd` and instructing them to explore files with LS / Glob / Read / Grep / Bash before answering — never asking the user to paste code
 - New `buildWorkspaceSnapshot` helper recursively walks the workspace (skipping `node_modules`, `.git`, `dist`, etc.) and returns a compact indented file tree capped at 200 entries
 - New `buildWorkspaceContent` helper reads key project files (README, package.json, entry points, etc.) and returns their contents for inline injection — capped at 64 KB total

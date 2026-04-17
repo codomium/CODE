@@ -344,6 +344,138 @@ class ClaudeCodeViewProvider {
                 break;
             }
 
+            case 'saveSession': {
+                if (msg.messages && msg.messages.length > 0) {
+                    const sessions = this._context.globalState.get('openClaudeCode.chatHistory', []);
+                    const firstUser = msg.messages.find(m => m.type === 'user');
+                    const title = firstUser
+                        ? firstUser.text.slice(0, 80).replace(/\n/g, ' ')
+                        : 'Untitled conversation';
+                    sessions.unshift({
+                        id: Date.now().toString(),
+                        title,
+                        createdAt: Date.now(),
+                        messages: msg.messages,
+                    });
+                    // Keep the 30 most recent sessions
+                    if (sessions.length > 30) sessions.length = 30;
+                    await this._context.globalState.update('openClaudeCode.chatHistory', sessions);
+                }
+                break;
+            }
+
+            case 'getHistory': {
+                const sessions = this._context.globalState.get('openClaudeCode.chatHistory', []);
+                const sessionList = sessions.map(s => ({
+                    id: s.id,
+                    title: s.title,
+                    createdAt: s.createdAt,
+                    messageCount: s.messages ? s.messages.length : 0,
+                }));
+                this.postMessage({ type: 'historyData', sessions: sessionList });
+                break;
+            }
+
+            case 'loadSession': {
+                const sessions = this._context.globalState.get('openClaudeCode.chatHistory', []);
+                const session = sessions.find(s => s.id === msg.id);
+                if (session) {
+                    this.postMessage({ type: 'sessionData', messages: session.messages || [] });
+                }
+                break;
+            }
+
+            case 'renameSession': {
+                const sessions = this._context.globalState.get('openClaudeCode.chatHistory', []);
+                const sess = sessions.find(s => s.id === msg.id);
+                if (sess && msg.title) {
+                    sess.title = String(msg.title).slice(0, 120);
+                    await this._context.globalState.update('openClaudeCode.chatHistory', sessions);
+                    const sessionList = sessions.map(s => ({
+                        id: s.id, title: s.title, createdAt: s.createdAt,
+                        messageCount: s.messages ? s.messages.length : 0,
+                    }));
+                    this.postMessage({ type: 'historyData', sessions: sessionList });
+                }
+                break;
+            }
+
+            case 'deleteSession': {
+                let sessions = this._context.globalState.get('openClaudeCode.chatHistory', []);
+                sessions = sessions.filter(s => s.id !== msg.id);
+                await this._context.globalState.update('openClaudeCode.chatHistory', sessions);
+                const sessionList = sessions.map(s => ({
+                    id: s.id, title: s.title, createdAt: s.createdAt,
+                    messageCount: s.messages ? s.messages.length : 0,
+                }));
+                this.postMessage({ type: 'historyData', sessions: sessionList });
+                break;
+            }
+
+            case 'exportConversation': {
+                const content = String(msg.markdown || '');
+                const defaultName = 'conversation-' + new Date().toISOString().slice(0, 10) + '.md';
+                const defaultUri = vscode.Uri.file(
+                    path.join(
+                        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd(),
+                        defaultName
+                    )
+                );
+                const uri = await vscode.window.showSaveDialog({
+                    defaultUri,
+                    filters: { 'Markdown': ['md'] },
+                    title: 'Export conversation as Markdown',
+                });
+                if (uri) {
+                    await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf8'));
+                    vscode.window.showInformationMessage('Exported to ' + path.basename(uri.fsPath));
+                }
+                break;
+            }
+
+            case 'getActiveFileContent': {
+                const editor = vscode.window.activeTextEditor;
+                if (editor) {
+                    this.postMessage({
+                        type: 'activeFileContent',
+                        content: editor.document.getText(),
+                        fileName: path.basename(editor.document.fileName),
+                    });
+                } else {
+                    this.postMessage({ type: 'activeFileContent', content: null, fileName: null });
+                }
+                break;
+            }
+
+            case 'getPinnedFiles': {
+                const config = vscode.workspace.getConfiguration('openClaudeCode');
+                const pinned = (config.get('pinnedFiles') || []).filter(p => {
+                    try { return fs.existsSync(p); } catch { return false; }
+                });
+                this.postMessage({
+                    type: 'pinnedFiles',
+                    files: pinned.map(p => ({ name: path.basename(p), path: p })),
+                });
+                break;
+            }
+
+            case 'pinFile': {
+                const config = vscode.workspace.getConfiguration('openClaudeCode');
+                const pinned = [...(config.get('pinnedFiles') || [])];
+                if (msg.path && !pinned.includes(msg.path)) {
+                    pinned.push(msg.path);
+                    await config.update('pinnedFiles', pinned, vscode.ConfigurationTarget.Global);
+                }
+                break;
+            }
+
+            case 'unpinFile': {
+                const config = vscode.workspace.getConfiguration('openClaudeCode');
+                const pinned = (config.get('pinnedFiles') || []).filter(p => p !== msg.path);
+                await config.update('pinnedFiles', pinned, vscode.ConfigurationTarget.Global);
+                break;
+            }
+
             default:
                 break;
         }
@@ -665,6 +797,28 @@ function activate(context) {
             });
             if (code && viewProvider) {
                 await viewProvider._applyCodeToActiveEditor(code);
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('openClaudeCode.inlineEdit', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                vscode.window.showWarningMessage('Open Claude Code: No active editor for inline edit.');
+                return;
+            }
+            const selection = editor.selection;
+            const selectedText = editor.document.getText(selection.isEmpty ? undefined : selection);
+            const fileName = path.basename(editor.document.fileName);
+            await vscode.commands.executeCommand('claudeCode.chatView.focus');
+            if (viewProvider) {
+                viewProvider.postMessage({
+                    type: 'inlineEditRequest',
+                    selectedText,
+                    fileName,
+                    hasSelection: !selection.isEmpty,
+                });
             }
         })
     );

@@ -14,11 +14,35 @@
   <div id="header">
     <span id="header-title">✦ Claude Code</span>
     <div id="header-spacer"></div>
+    <button class="header-btn" id="history-btn" title="Chat history">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="8" cy="8" r="6"/>
+        <polyline points="8,5 8,8 10,10"/>
+      </svg>
+      History
+    </button>
     <button class="header-btn" id="new-chat-btn" title="New conversation">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
         <line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/>
       </svg>
       New
+    </button>
+    <button class="header-btn" id="settings-btn" title="Open Settings">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="8" cy="8" r="2"/>
+        <path d="M8 1.5v1M8 13.5v1M1.5 8h1M13.5 8h1M3.4 3.4l.7.7M11.9 11.9l.7.7M3.4 12.6l.7-.7M11.9 4.1l.7-.7"/>
+      </svg>
+    </button>
+    <button class="header-btn" id="export-btn" title="Export conversation as Markdown">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M8 2v9M5 8l3 3 3-3M2 13h12"/>
+      </svg>
+      Export
+    </button>
+    <button class="header-btn icon-only" id="autoscroll-btn" title="Auto-scroll: On (click to lock)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M8 2v8M5 7l3 3 3-3"/><line x1="2" y1="14" x2="14" y2="14"/>
+      </svg>
     </button>
   </div>
 
@@ -62,6 +86,15 @@
       <input type="checkbox" id="thinking-toggle">
       <span class="toggle-slider"></span>
     </label>
+  </div>
+
+  <!-- Search bar (hidden until Ctrl+F) -->
+  <div id="search-bar" style="display:none">
+    <input type="text" id="search-input" placeholder="Search messages… (Enter=next, Esc=close)" autocomplete="off" spellcheck="false">
+    <span id="search-count"></span>
+    <button class="search-nav-btn" id="search-prev" title="Previous match">▲</button>
+    <button class="search-nav-btn" id="search-next" title="Next match">▼</button>
+    <button class="search-close-btn" id="search-close" title="Close search">✕</button>
   </div>
 
   <!-- Messages -->
@@ -221,7 +254,30 @@
     <span class="stat-item">⏱ <span id="stats-time">0s</span></span>
   </div>
 
+  <!-- Context window usage bar -->
+  <div id="context-bar" style="display:none">
+    <span id="context-bar-label">Context: <span id="context-used">0</span> / <span id="context-max">200k</span></span>
+    <div id="context-bar-track"><div id="context-bar-fill"></div></div>
+  </div>
+
 </div><!-- #app -->
+
+<!-- History Panel (absolute overlay inside #app) -->
+<div id="history-panel">
+  <div id="history-panel-header">
+    <button class="header-btn" id="history-back-btn" title="Back to list" style="display:none">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <polyline points="10,3 5,8 10,13"/>
+      </svg>
+      Back
+    </button>
+    <span id="history-panel-title">Chat History</span>
+    <div style="flex:1"></div>
+    <button class="header-btn" id="history-close-btn" title="Close history">✕</button>
+  </div>
+  <div id="history-list"></div>
+  <div id="history-session-view"></div>
+</div>
 
 <!-- Apply modal -->
 <div id="apply-modal">

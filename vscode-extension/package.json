@@ -82,6 +82,22 @@
       {
         "command": "openClaudeCode.applyCode",
         "title": "Open Claude Code: Apply Code to Active File"
+      },
+      {
+        "command": "openClaudeCode.inlineEdit",
+        "title": "Open Claude Code: Inline Edit Selection (Ctrl+K)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "openClaudeCode.openChat",
+        "key": "ctrl+alt+c",
+        "mac": "cmd+alt+c"
+      },
+      {
+        "command": "openClaudeCode.inlineEdit",
+        "key": "ctrl+k",
+        "when": "editorTextFocus"
       }
     ],
     "configuration": {
@@ -167,6 +183,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show the Cursor-style sidebar chat panel (requires reload)"
+        },
+        "openClaudeCode.pinnedFiles": {
+          "type": "array",
+          "default": [],
+          "items": { "type": "string" },
+          "description": "File paths pinned to every new conversation as context"
         }
       }
     }
