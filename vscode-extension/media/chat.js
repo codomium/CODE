@@ -1266,6 +1266,13 @@
                 finalizeAssistantMessage(null);
                 setLoading(false);
                 setSending(false);
+                // When the agent loop hits its turn limit, nudge the user to
+                // click the ▶ Continue button so the task can keep going.
+                if (msg.reason === 'max_turns') {
+                    addSystemMessage(
+                        '⚙ Max tool-use turns reached. Use ▶ Continue on the last reply to keep going.'
+                    );
+                }
                 // Auto-save current session after every response so VS Code restarts
                 // don't lose the conversation (Cursor/Claude-style session memory).
                 if (sessionMessages.length > 0) {

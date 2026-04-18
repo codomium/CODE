@@ -89,12 +89,17 @@ class AgentBridge {
 
         this._proc.on('exit', (code, signal) => {
             this._started = false;
-            if (this._currentHandler) {
-                this._currentHandler({
+            const handler = this._currentHandler;
+            this._currentHandler = null;
+            if (handler) {
+                const hint = 'Click Retry to continue — your session memory will be restored.';
+                const reason = signal
+                    ? `signal=${signal}`
+                    : `exit code ${code}`;
+                handler({
                     type: 'error',
-                    message: `Agent bridge exited unexpectedly (code=${code}, signal=${signal})`,
+                    message: `Agent process stopped unexpectedly (${reason}). ${hint}`,
                 });
-                this._currentHandler = null;
             }
         });
     }
@@ -109,7 +114,12 @@ class AgentBridge {
     }
 
     run(message, onEvent) {
-        this._queue = this._queue.then(() => this._doRun(message, onEvent));
+        // Use the two-arg form of .then() so a rejected queue resolves before
+        // attempting the new run (prevents a stuck queue after bridge errors).
+        this._queue = this._queue.then(
+            () => this._doRun(message, onEvent),
+            () => this._doRun(message, onEvent),
+        );
         return this._queue;
     }
 
@@ -122,7 +132,12 @@ class AgentBridge {
                     resolve();
                 }
             };
-            this._send({ type: 'run', message });
+            if (!this._send({ type: 'run', message })) {
+                this._currentHandler = null;
+                onEvent({ type: 'error', message: 'Agent bridge is not running.' });
+                onEvent({ type: 'stop',  reason: 'error' });
+                resolve();
+            }
         });
     }
 
@@ -135,7 +150,10 @@ class AgentBridge {
                         resolve();
                     }
                 };
-                this._send({ type: 'reset' });
+                if (!this._send({ type: 'reset' })) {
+                    this._currentHandler = null;
+                    resolve();
+                }
             })
         );
         return this._queue;
@@ -150,7 +168,10 @@ class AgentBridge {
                         resolve();
                     }
                 };
-                this._send({ type: 'model', model });
+                if (!this._send({ type: 'model', model })) {
+                    this._currentHandler = null;
+                    resolve();
+                }
             })
         );
         return this._queue;
@@ -169,15 +190,30 @@ class AgentBridge {
                         resolve();
                     }
                 };
-                this._send({ type: 'resume', messages });
+                if (!this._send({ type: 'resume', messages })) {
+                    // Bridge not running — skip gracefully; a new bridge will be
+                    // created with auto-injected history by getBridge().
+                    this._currentHandler = null;
+                    resolve();
+                }
             })
         );
         return this._queue;
     }
 
+    /**
+     * Write a JSON message to the bridge's stdin.
+     * Returns true on success, false if the bridge is not running or write fails.
+     * Never throws so callers can use a simple boolean check.
+     */
     _send(obj) {
-        if (!this._proc || !this._started) throw new Error('Agent bridge is not running');
-        this._proc.stdin.write(JSON.stringify(obj) + '\n');
+        if (!this._proc || !this._started) return false;
+        try {
+            this._proc.stdin.write(JSON.stringify(obj) + '\n');
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     get isRunning() { return this._started && !!this._proc; }
@@ -231,6 +267,20 @@ async function getBridge() {
 
     bridge = new AgentBridge(cwd, env);
     bridge.start();
+
+    // ── Auto-restore session memory ─────────────────────────────────────────
+    // Whenever a fresh bridge is created (after a crash, settings change, or
+    // VS Code restart) inject the last active session so the model always
+    // remembers the full conversation without the user having to do anything.
+    // This is queued before any subsequent run() call so history is always
+    // loaded before the first user message is processed.
+    const savedSession = extensionContext
+        ? extensionContext.globalState.get('openClaudeCode.activeSession')
+        : null;
+    if (savedSession?.messages?.length > 0) {
+        bridge.resume(savedSession.messages);
+    }
+
     return bridge;
 }
 
