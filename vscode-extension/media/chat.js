@@ -55,6 +55,18 @@
     /** Interval (approx chars) between loading-text speed updates during streaming */
     const STREAM_UPDATE_THROTTLE_CHARS = 80;
 
+    /** Plain-English descriptions for each permission mode (shown in mode-desc-bar) */
+    const MODE_DESCRIPTIONS = {
+        default:           'Asks permission before making file edits or running commands — safest choice',
+        auto:              'Approves safe read operations automatically; asks for writes and commands',
+        plan:              'Read-only planning mode: analyzes code without making any changes',
+        acceptEdits:       'Automatically applies all file edits without asking — fast but careful',
+        bypassPermissions: '⚠ Skips all permission checks — full automation, use with care',
+    };
+
+    /** Keywords that indicate a retryable rate-limit/overload error in the UI */
+    const RATE_LIMIT_PATTERN = /rate.?limit|overload|too.?many.?request|capacity|529|503|quota/i;
+
     // ── DOM refs ─────────────────────────────────────────────────────────────
     const messagesEl   = document.getElementById('messages');
     const welcomeEl    = document.getElementById('welcome');
@@ -112,6 +124,10 @@
     const statsSpeedEl      = document.getElementById('stats-speed');
     const statsMsgsEl       = document.getElementById('stats-msgs');
     const charCountEl       = document.getElementById('char-count');
+    const actionsBtn        = document.getElementById('actions-btn');
+    const quickActionsPanel = document.getElementById('quick-actions');
+    const modeDescBar       = document.getElementById('mode-desc-bar');
+    const modeDescText      = document.getElementById('mode-desc-text');
 
     /** Models that support NVIDIA thinking mode toggle */
     const THINKING_CAPABLE_MODELS = new Set([
@@ -636,6 +652,20 @@
             });
             header.appendChild(regenBtn);
         }
+
+        // "Continue" button — sends a follow-up that asks the model to keep going.
+        // Useful when the model stops mid-task (e.g. max turns reached).
+        const continueBtn = document.createElement('button');
+        continueBtn.className = 'msg-continue-btn';
+        continueBtn.title = 'Ask the model to continue from here';
+        continueBtn.textContent = '▶ Continue';
+        continueBtn.addEventListener('click', () => {
+            if (isLoading) return;
+            setSending(true);
+            setLoading(true, 'Thinking…');
+            vscode.postMessage({ type: 'send', message: 'Please continue from where you left off.', contextFiles: [], fileRefs: [] });
+        });
+        header.appendChild(continueBtn);
     }
 
     // ── Message rendering ─────────────────────────────────────────────────────
@@ -938,7 +968,31 @@
         currentStreamMsg = null;
         const div = document.createElement('div');
         div.className = 'msg msg-error';
-        div.innerHTML = `<div class="msg-bubble">⚠ ${escapeHtml(text)}</div>`;
+
+        const bubble = document.createElement('div');
+        bubble.className = 'msg-bubble';
+        bubble.textContent = '⚠ ' + text;    // safe — textContent
+
+        div.appendChild(bubble);
+
+        // Always show a retry row so the user can manually retry after any error
+        const actionsRow = document.createElement('div');
+        actionsRow.className = 'msg-error-actions';
+
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'msg-retry-btn';
+        retryBtn.textContent = '↩ Retry';
+        retryBtn.title = 'Re-send the last message';
+        retryBtn.addEventListener('click', () => {
+            if (isLoading || !lastUserMessage) return;
+            div.remove();
+            setSending(true);
+            setLoading(true, 'Thinking…');
+            vscode.postMessage({ type: 'send', message: lastUserMessage, contextFiles: [], fileRefs: [] });
+        });
+        actionsRow.appendChild(retryBtn);
+        div.appendChild(actionsRow);
+
         messagesEl.appendChild(div);
         scrollToBottom();
     }
@@ -1201,6 +1255,11 @@
                 addErrorMessage(msg.message);
                 setLoading(false);
                 setSending(false);
+                break;
+
+            case 'retrying':
+                // Rate-limit auto-retry: show countdown in loading indicator
+                setLoading(true, `⏳ Rate limited — retrying in ${msg.delaySeconds}s (attempt ${msg.attempt}/${msg.maxAttempts})…`);
                 break;
 
             case 'stop':
@@ -1470,7 +1529,8 @@
                 : `$${costTotal.toFixed(3)}`;
         }
         if (statsMsgsEl) {
-            const msgs = Math.floor(sessionMessages.length / 2); // count exchanges
+            // Count completed user-assistant exchange pairs (floor division)
+            const msgs = Math.floor(sessionMessages.length / 2);
             statsMsgsEl.textContent = msgs > 0 ? String(msgs) : '0';
         }
     }
@@ -1671,6 +1731,46 @@
             vscode.postMessage({ type: 'cancel' });
             setSending(false);
         });
+    }
+
+    // ── Quick Actions toggle ───────────────────────────────────────────────────
+    if (actionsBtn && quickActionsPanel) {
+        actionsBtn.addEventListener('click', () => {
+            const visible = quickActionsPanel.style.display !== 'none';
+            quickActionsPanel.style.display = visible ? 'none' : '';
+            actionsBtn.classList.toggle('active', !visible);
+        });
+        // Wire each quick-action button → fill input with template
+        quickActionsPanel.querySelectorAll('.qa-btn').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const template = btn.dataset.template || '';
+                if (!template || !inputEl) return;
+                inputEl.value = template + '\n';
+                inputEl.style.height = 'auto';
+                inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+                inputEl.focus();
+                inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+                // Collapse the panel after selecting to give the user more space
+                quickActionsPanel.style.display = 'none';
+                actionsBtn.classList.remove('active');
+            });
+        });
+    }
+
+    // ── Mode description bar ─────────────────────────────────────────────────
+    let modeDescTimeout = null;
+    function showModeDesc(mode) {
+        const desc = MODE_DESCRIPTIONS[mode];
+        if (!modeDescBar || !modeDescText || !desc) return;
+        modeDescText.textContent = desc;
+        modeDescBar.style.display = '';
+        clearTimeout(modeDescTimeout);
+        modeDescTimeout = setTimeout(() => {
+            if (modeDescBar) modeDescBar.style.display = 'none';
+        }, 5000);
+    }
+    if (modeSelect) {
+        modeSelect.addEventListener('change', () => showModeDesc(modeSelect.value));
     }
 
     function submitMessage() {

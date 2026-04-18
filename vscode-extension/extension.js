@@ -31,6 +31,19 @@ const BRIDGE_SCRIPT  = path.join(__dirname, 'agent-bridge.mjs');
 // Applies to both the in-progress activeSession and updated history entries.
 const MAX_SESSION_MESSAGES = 200;
 
+// ── Rate-limit retry ─────────────────────────────────────────────────────────
+/** Backoff delays (ms) for successive retry attempts */
+const RETRY_DELAYS_MS = [3000, 8000, 20000];
+
+/**
+ * Returns true when the error message looks like a transient rate-limit /
+ * server-overload error that is worth retrying automatically.
+ * @param {string} msg
+ */
+function isRateLimitError(msg) {
+    return /rate.?limit|overload|too.?many.?request|capacity|529|503|quota/i.test(msg || '');
+}
+
 // ── AgentBridge ─────────────────────────────────────────────────────────────
 
 /**
@@ -643,13 +656,75 @@ class ClaudeCodeViewProvider {
             return;
         }
 
-        await agentBridge.run(fullPrompt, (event) => {
+        // ── Retry loop (auto-recovers from rate-limit / overload errors) ────────
+        for (let attempt = 0; ; attempt++) {
             if (this._isCancelled) return;
-            this.postMessage(event);
-        });
 
-        if (!this._isCancelled) {
-            this.postMessage({ type: 'stop' });
+            let retryErrorMsg = null;
+
+            await agentBridge.run(fullPrompt, (event) => {
+                if (this._isCancelled) return;
+                // Intercept retryable errors — don't forward yet; we may recover
+                if (event.type === 'error' && isRateLimitError(event.message)) {
+                    retryErrorMsg = event.message;
+                    return;
+                }
+                this.postMessage(event);
+            });
+
+            if (this._isCancelled) return;
+
+            if (!retryErrorMsg) {
+                // Normal completion — stop was already forwarded by onEvent
+                this.postMessage({ type: 'stop' });
+                return;
+            }
+
+            // Retryable error — decide whether to retry or give up
+            if (attempt >= RETRY_DELAYS_MS.length) {
+                // All retries exhausted
+                this.postMessage({
+                    type: 'error',
+                    message: retryErrorMsg + ` (failed after ${attempt + 1} attempts)`,
+                });
+                this.postMessage({ type: 'stop' });
+                return;
+            }
+
+            const delaySec = Math.ceil(RETRY_DELAYS_MS[attempt] / 1000);
+            this.postMessage({
+                type: 'retrying',
+                attempt: attempt + 1,
+                delaySeconds: delaySec,
+                maxAttempts: RETRY_DELAYS_MS.length,
+            });
+
+            // Countdown ticks emitted every second so the UI can show a live timer
+            await new Promise((resolve) => {
+                let remaining = delaySec - 1;
+                const tick = setInterval(() => {
+                    if (this._isCancelled) { clearInterval(tick); resolve(); return; }
+                    if (remaining <= 0) { clearInterval(tick); resolve(); return; }
+                    this.postMessage({
+                        type: 'retrying',
+                        attempt: attempt + 1,
+                        delaySeconds: remaining,
+                        maxAttempts: RETRY_DELAYS_MS.length,
+                    });
+                    remaining--;
+                }, 1000);
+            });
+
+            if (this._isCancelled) return;
+
+            // Re-acquire bridge in case it restarted during the wait
+            try {
+                agentBridge = await getBridge();
+            } catch (err) {
+                this.postMessage({ type: 'error', message: 'Failed to restart agent: ' + err.message });
+                this.postMessage({ type: 'stop' });
+                return;
+            }
         }
     }
 

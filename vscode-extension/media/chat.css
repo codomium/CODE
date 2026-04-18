@@ -214,6 +214,69 @@ select:focus { border-color: var(--accent); }
 
 .control-spacer { flex: 1; }
 
+/* ---- Mode description bar ---- */
+#mode-desc-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background: rgba(0,122,204,0.08);
+  border-bottom: 1px solid rgba(0,122,204,0.2);
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  animation: fadeIn 0.2s ease-out;
+}
+#mode-desc-text::before { content: 'ℹ '; color: var(--accent); }
+
+/* ---- Quick Actions panel ---- */
+#quick-actions {
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+  animation: fadeIn 0.15s ease-out;
+}
+.qa-section-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 5px;
+}
+.qa-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.qa-btn {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 10px;
+  transition: all 0.15s;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.qa-btn:hover {
+  background: rgba(0,122,204,0.15);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.qa-btn:active { transform: scale(0.96); }
+
+/* ---- Actions button active state ---- */
+#actions-btn.active {
+  background: rgba(0,122,204,0.15);
+  border-color: rgba(0,122,204,0.4);
+  color: var(--accent);
+}
+
 /* ---- Thinking mode toggle pill ---- */
 .toggle-switch {
   --toggle-w:           30px;
@@ -1016,6 +1079,49 @@ select:focus { border-color: var(--accent); }
   color: var(--error-text);
   padding: 6px 10px;
   font-size: 12px;
+}
+
+/* Retry button shown below error messages */
+.msg-error-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  padding-left: 2px;
+}
+.msg-retry-btn {
+  background: transparent;
+  border: 1px solid rgba(244,135,113,0.4);
+  border-radius: var(--radius);
+  color: var(--error-text);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 9px;
+  transition: all 0.15s;
+}
+.msg-retry-btn:hover {
+  background: rgba(244,135,113,0.15);
+  border-color: var(--error-text);
+}
+
+/* Continue button on assistant messages */
+.msg-continue-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius);
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.msg-assistant:hover .msg-continue-btn { opacity: 1; }
+.msg-continue-btn:hover {
+  background: rgba(78,201,176,0.15);
+  border-color: rgba(78,201,176,0.4);
+  color: var(--success);
 }
 
 /* Context files chips */

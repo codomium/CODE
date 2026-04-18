@@ -87,6 +87,36 @@
       <input type="checkbox" id="thinking-toggle">
       <span class="toggle-slider"></span>
     </label>
+    <button class="header-btn" id="actions-btn" title="Quick Actions panel — click common tasks without typing commands">
+      ⚡ Actions
+    </button>
+  </div>
+
+  <!-- Mode description bar (shown briefly when mode changes) -->
+  <div id="mode-desc-bar" style="display:none">
+    <span id="mode-desc-text"></span>
+  </div>
+
+  <!-- Quick Actions panel (collapsible) -->
+  <div id="quick-actions" style="display:none">
+    <div class="qa-section-label">✨ Code Tasks</div>
+    <div class="qa-grid">
+      <button class="qa-btn" data-template="Explain what this code does step by step:" data-icon="🔍">Explain</button>
+      <button class="qa-btn" data-template="Find and fix the bugs in this code. Explain what was wrong:" data-icon="🐛">Fix Bugs</button>
+      <button class="qa-btn" data-template="Write comprehensive unit tests for this code:" data-icon="🧪">Write Tests</button>
+      <button class="qa-btn" data-template="Refactor this code to be cleaner and more maintainable:" data-icon="🔧">Refactor</button>
+      <button class="qa-btn" data-template="Review this code for bugs, security issues, and improvements:" data-icon="👀">Review</button>
+      <button class="qa-btn" data-template="Generate clear documentation/JSDoc comments for this code:" data-icon="📝">Add Docs</button>
+      <button class="qa-btn" data-template="Generate a conventional commits style git commit message for these changes:" data-icon="💾">Commit Msg</button>
+      <button class="qa-btn" data-template="Optimize this code for better performance and explain the changes:" data-icon="⚡">Optimize</button>
+    </div>
+    <div class="qa-section-label" style="margin-top:6px">📁 Project Tasks</div>
+    <div class="qa-grid">
+      <button class="qa-btn" data-template="Create a plan to implement this feature step by step:" data-icon="🗺">Plan Feature</button>
+      <button class="qa-btn" data-template="Add error handling and input validation to this code:" data-icon="🛡">Add Guards</button>
+      <button class="qa-btn" data-template="Convert this code to TypeScript with proper types:" data-icon="🔷">To TypeScript</button>
+      <button class="qa-btn" data-template="List all TODO comments in the codebase and suggest fixes:" data-icon="✅">Fix TODOs</button>
+    </div>
   </div>
 
   <!-- Search bar (hidden until Ctrl+F) -->
