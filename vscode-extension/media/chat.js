@@ -1472,6 +1472,9 @@
                     if (thinkingLabelEl) thinkingLabelEl.classList.toggle('active', !!msg.thinkingMode);
                 }
                 syncThinkingToggleVisibility(currentModel);
+                // Restore auto-attach state from settings
+                autoAttachActive = !!msg.autoAttachActiveFile;
+                if (autoAttachBtn) autoAttachBtn.classList.toggle('active', autoAttachActive);
                 updateStats();
                 updateContextBar();
                 // Restore active session if one was persisted (survives VS Code restarts)
@@ -1486,6 +1489,23 @@
 
             case 'apiKeySet':
                 showWelcome(true);
+                break;
+
+            case 'gitContext':
+                addGitContext(msg.content || '', msg.branch || '');
+                break;
+
+            case 'workspaceDiagnostics':
+                addErrorsContext(msg.diagnostics || []);
+                break;
+
+            case 'openEditors':
+                renderAutocomplete(msg.files || []);
+                break;
+
+            case 'autoAttachState':
+                autoAttachActive = !!msg.enabled;
+                if (autoAttachBtn) autoAttachBtn.classList.toggle('active', autoAttachActive);
                 break;
 
             default:
@@ -2446,6 +2466,24 @@
             renderAutocomplete(event.data.files || []);
         }
     });
+
+    // ── Context inject buttons ─────────────────────────────────────────────────
+    if (gitBtn) {
+        gitBtn.addEventListener('click', () => requestGitContext());
+    }
+    if (errorsBtn) {
+        errorsBtn.addEventListener('click', () => requestErrorsContext());
+    }
+    if (autoAttachBtn) {
+        autoAttachBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'toggleAutoAttach' });
+        });
+    }
+    if (contextWarningNewBtn) {
+        contextWarningNewBtn.addEventListener('click', () => {
+            newChatBtn && newChatBtn.click();
+        });
+    }
 
     // ── Signal ready ──────────────────────────────────────────────────────────
     vscode.postMessage({ type: 'ready' });
