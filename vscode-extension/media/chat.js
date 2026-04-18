@@ -1152,6 +1152,7 @@
             : '(no errors or warnings found)';
         contextFiles.push({
             name: diagnostics.length > 0 ? `⚠ ${errCount}E ${warnCount}W` : '⚠ no errors',
+            title: diagnostics.length > 0 ? `${errCount} error(s), ${warnCount} warning(s)` : 'No errors or warnings',
             path: '__errors__',
             isErrors: true,
             content,
@@ -1676,6 +1677,7 @@
                 + (f.pinned    ? ' pinned'      : '')
                 + (f.isGit     ? ' chip-git'    : '')
                 + (f.isErrors  ? ' chip-errors' : '');
+            if (f.title) chip.title = f.title;
 
             const nameSpan = document.createElement('span');
             // Special chips carry their icon in the name; files get an icon prefix
@@ -1794,12 +1796,7 @@
 
         inputEl.addEventListener('keydown', (e) => {
             // Submit on Enter (not Shift+Enter) or Ctrl/Cmd+Enter
-            if (e.key === 'Enter' && !e.shiftKey && !autocompleteEl.classList.contains('visible')) {
-                e.preventDefault();
-                submitMessage();
-                return;
-            }
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !autocompleteEl.classList.contains('visible')) {
+            if (e.key === 'Enter' && (!e.shiftKey || e.ctrlKey || e.metaKey) && !autocompleteEl.classList.contains('visible')) {
                 e.preventDefault();
                 submitMessage();
                 return;
@@ -1944,8 +1941,8 @@
         // Append inline content from special context chips (@git, @errors)
         const specialParts = [];
         for (const f of contextFiles) {
-            if (f.isGit && f.content)    specialParts.push('\n\n[Git Context:]\n' + f.content);
-            if (f.isErrors && f.content) specialParts.push('\n\n[Workspace Problems:]\n' + f.content);
+            if (f.isGit && f.content)    specialParts.push('\n\n[Git Context]\n' + f.content);
+            if (f.isErrors && f.content) specialParts.push('\n\n[Workspace Problems]\n' + f.content);
         }
         const finalMessage = specialParts.length > 0 ? rawText + specialParts.join('') : rawText;
 
