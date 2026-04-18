@@ -1391,6 +1391,55 @@ select:focus { border-color: var(--accent); }
 .pin-btn:hover { color: var(--success); }
 .context-chip.pinned .pin-btn { opacity: 1; color: var(--success); }
 
+/* Git context chip */
+.context-chip.chip-git {
+  background: rgba(240,180,40,0.12);
+  border-color: rgba(240,180,40,0.35);
+  color: #d4a500;
+}
+
+/* Errors/warnings chip */
+.context-chip.chip-errors {
+  background: rgba(204,0,0,0.1);
+  border-color: rgba(204,0,0,0.3);
+  color: var(--error-text);
+}
+
+/* Active state for context inject buttons (auto-attach on) */
+.input-btn.active {
+  color: var(--accent);
+  border-color: rgba(0,122,204,0.35);
+  background: rgba(0,122,204,0.1);
+}
+.input-btn.active:hover {
+  background: rgba(0,122,204,0.18);
+}
+
+/* Context-full warning banner */
+#context-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: rgba(204,100,0,0.12);
+  border-top: 1px solid rgba(204,100,0,0.3);
+  font-size: 11px;
+  color: var(--warning, #d4a017);
+  flex-shrink: 0;
+}
+#context-warning-text { flex: 1; }
+#context-warning-new {
+  background: rgba(204,100,0,0.18);
+  border: 1px solid rgba(204,100,0,0.35);
+  color: inherit;
+  cursor: pointer;
+  border-radius: var(--radius);
+  padding: 2px 8px;
+  font-size: 11px;
+  transition: background 0.15s;
+}
+#context-warning-new:hover { background: rgba(204,100,0,0.3); }
+
 /* Image paste chip preview */
 .img-chip img {
   width: 20px;

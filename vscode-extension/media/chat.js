@@ -39,6 +39,8 @@
     let streamStartTime = 0;     // timestamp when first stream token arrived
     let streamOutputChars = 0;   // approx output chars during current stream (for t/s)
     let lastStreamTps = 0;       // final t/s from last completed stream
+    let autoAttachActive = false; // whether to auto-attach the active file with every send
+    let msgSendTime = 0;          // timestamp when the last user message was submitted
 
     /** Max characters shown in the header session-title indicator */
     const SESSION_TITLE_DISPLAY_LENGTH = 55;
@@ -128,6 +130,12 @@
     const quickActionsPanel = document.getElementById('quick-actions');
     const modeDescBar       = document.getElementById('mode-desc-bar');
     const modeDescText      = document.getElementById('mode-desc-text');
+    const gitBtn            = document.getElementById('git-btn');
+    const errorsBtn         = document.getElementById('errors-btn');
+    const autoAttachBtn     = document.getElementById('auto-attach-btn');
+    const contextWarningEl  = document.getElementById('context-warning');
+    const contextWarningTextEl = document.getElementById('context-warning-text');
+    const contextWarningNewBtn = document.getElementById('context-warning-new');
 
     /** Models that support NVIDIA thinking mode toggle */
     const THINKING_CAPABLE_MODELS = new Set([
@@ -683,6 +691,7 @@
     }
 
     function addUserMessage(text) {
+        msgSendTime = Date.now(); // track when message was sent for per-message timing
         hideWelcome();
         currentStreamMsg = null;
         lastUserMessage = text;
@@ -798,11 +807,27 @@
             statsSpeedItem.style.display = '';
         }
 
+        // Compute per-message response time
+        let responseTimeLabel = '';
+        if (msgSendTime > 0) {
+            const elapsed = (Date.now() - msgSendTime) / 1000;
+            responseTimeLabel = elapsed < 60
+                ? `${elapsed.toFixed(1)}s`
+                : `${Math.floor(elapsed / 60)}m${Math.round(elapsed % 60)}s`;
+            msgSendTime = 0;
+        }
+
         if (currentStreamMsg) {
             const raw = currentStreamMsg._rawText || content || '';
             currentStreamMsg.innerHTML = raw ? renderMarkdown(raw) : '';
             currentStreamMsg.classList.remove('streaming-cursor');
             currentStreamMsg._rawText = '';
+            // Show response time in header
+            if (responseTimeLabel) {
+                const msgDiv = currentStreamMsg.closest('.msg-assistant');
+                const timeEl = msgDiv?.querySelector('.msg-time');
+                if (timeEl) timeEl.textContent = responseTimeLabel;
+            }
             // Add copy + regenerate buttons + track in history
             if (raw) {
                 const msgDiv = currentStreamMsg.closest('.msg-assistant');
@@ -818,6 +843,7 @@
                 <div class="msg-header">
                     <div class="msg-avatar">✦</div>
                     <span class="msg-name">Claude</span>
+                    ${responseTimeLabel ? `<span class="msg-time">${escapeHtml(responseTimeLabel)}</span>` : ''}
                 </div>
                 <div class="msg-content">${renderMarkdown(content)}</div>
             `;
@@ -1091,6 +1117,54 @@
         renderContextFiles();
     }
 
+    // ── @git chip — inject current git status ─────────────────────────────────
+    function requestGitContext() {
+        vscode.postMessage({ type: 'getGitContext' });
+    }
+    function addGitContext(content, branch) {
+        if (contextFiles.find(f => f.isGit)) {
+            // Replace existing git chip with fresh one
+            contextFiles = contextFiles.filter(f => !f.isGit);
+        }
+        contextFiles.push({
+            name: branch ? `⎇ ${branch}` : '⎇ git',
+            path: '__git__',
+            isGit: true,
+            content,
+        });
+        renderContextFiles();
+    }
+
+    // ── @errors chip — inject workspace diagnostics ───────────────────────────
+    function requestErrorsContext() {
+        vscode.postMessage({ type: 'getWorkspaceDiagnostics' });
+    }
+    function addErrorsContext(diagnostics) {
+        if (contextFiles.find(f => f.isErrors)) {
+            contextFiles = contextFiles.filter(f => !f.isErrors);
+        }
+        const errCount  = diagnostics.filter(d => d.severity === 'error').length;
+        const warnCount = diagnostics.filter(d => d.severity === 'warning').length;
+        const content = diagnostics.length > 0
+            ? diagnostics.map(d =>
+                `[${d.severity.toUpperCase()}] ${d.file}:${d.line}:${d.col} — ${d.message}${d.source ? ` (${d.source})` : ''}`
+              ).join('\n')
+            : '(no errors or warnings found)';
+        contextFiles.push({
+            name: diagnostics.length > 0 ? `⚠ ${errCount}E ${warnCount}W` : '⚠ no errors',
+            title: diagnostics.length > 0 ? `${errCount} error(s), ${warnCount} warning(s)` : 'No errors or warnings',
+            path: '__errors__',
+            isErrors: true,
+            content,
+        });
+        renderContextFiles();
+    }
+
+    // ── @openfiles — show open editor tabs in autocomplete ────────────────────
+    function requestOpenFiles() {
+        vscode.postMessage({ type: 'getOpenEditors' });
+    }
+
     // ── Image paste chip ──────────────────────────────────────────────────────
     function addImageContext(name, dataUrl) {
         if (!contextFilesEl) return;
@@ -1125,6 +1199,19 @@
                                        : pct > 80 ? 'var(--warning)'
                                        : 'var(--success)';
         contextBarEl.style.display = used > 0 ? '' : 'none';
+
+        // Context-full warning banner
+        if (contextWarningEl) {
+            if (pct > 85) {
+                if (contextWarningTextEl) {
+                    contextWarningTextEl.textContent =
+                        `Context ${Math.round(pct)}% full — responses may degrade soon.`;
+                }
+                contextWarningEl.style.display = '';
+            } else {
+                contextWarningEl.style.display = 'none';
+            }
+        }
     }
 
     // ── Conversation search ───────────────────────────────────────────────────
@@ -1266,6 +1353,13 @@
                 finalizeAssistantMessage(null);
                 setLoading(false);
                 setSending(false);
+                // When the agent loop hits its turn limit, nudge the user to
+                // click the ▶ Continue button so the task can keep going.
+                if (msg.reason === 'max_turns') {
+                    addSystemMessage(
+                        '⚙ Max tool-use turns reached. Use ▶ Continue on the last reply to keep going.'
+                    );
+                }
                 // Auto-save current session after every response so VS Code restarts
                 // don't lose the conversation (Cursor/Claude-style session memory).
                 if (sessionMessages.length > 0) {
@@ -1379,6 +1473,9 @@
                     if (thinkingLabelEl) thinkingLabelEl.classList.toggle('active', !!msg.thinkingMode);
                 }
                 syncThinkingToggleVisibility(currentModel);
+                // Restore auto-attach state from settings
+                autoAttachActive = !!msg.autoAttachActiveFile;
+                if (autoAttachBtn) autoAttachBtn.classList.toggle('active', autoAttachActive);
                 updateStats();
                 updateContextBar();
                 // Restore active session if one was persisted (survives VS Code restarts)
@@ -1393,6 +1490,23 @@
 
             case 'apiKeySet':
                 showWelcome(true);
+                break;
+
+            case 'gitContext':
+                addGitContext(msg.content || '', msg.branch || '');
+                break;
+
+            case 'workspaceDiagnostics':
+                addErrorsContext(msg.diagnostics || []);
+                break;
+
+            case 'openEditors':
+                renderAutocomplete(msg.files || []);
+                break;
+
+            case 'autoAttachState':
+                autoAttachActive = !!msg.enabled;
+                if (autoAttachBtn) autoAttachBtn.classList.toggle('active', autoAttachActive);
                 break;
 
             default:
@@ -1559,10 +1673,15 @@
         contextFilesEl.innerHTML = '';
         for (const f of contextFiles) {
             const chip = document.createElement('div');
-            chip.className = 'context-chip' + (f.pinned ? ' pinned' : '');
+            chip.className = 'context-chip'
+                + (f.pinned    ? ' pinned'      : '')
+                + (f.isGit     ? ' chip-git'    : '')
+                + (f.isErrors  ? ' chip-errors' : '');
+            if (f.title) chip.title = f.title;
 
             const nameSpan = document.createElement('span');
-            const icon = f.isImage ? '🖼 ' : f.isCodebase ? '' : (f.pinned ? '📌 ' : '📄 ');
+            // Special chips carry their icon in the name; files get an icon prefix
+            const icon = f.isImage ? '🖼 ' : (f.isCodebase || f.isGit || f.isErrors) ? '' : (f.pinned ? '📌 ' : '📄 ');
             nameSpan.textContent = icon + f.name;
 
             if (f.isImage && f.dataUrl) {
@@ -1575,7 +1694,7 @@
                 chip.appendChild(img);
             }
 
-            if (!f.isCodebase && !f.isImage) {
+            if (!f.isCodebase && !f.isImage && !f.isGit && !f.isErrors) {
                 const pinBtn = document.createElement('button');
                 pinBtn.className = 'pin-btn';
                 pinBtn.title = f.pinned ? 'Unpin file' : 'Pin to all sessions';
@@ -1629,6 +1748,36 @@
                 return;
             }
 
+            // @git — inject git status as context chip
+            if (/@git\b/.test(val)) {
+                inputEl.value = val.replace(/@git\b/g, '').trim();
+                inputEl.style.height = 'auto';
+                inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+                requestGitContext();
+                hideAutocomplete();
+                return;
+            }
+
+            // @errors — inject workspace diagnostics as context chip
+            if (/@errors\b/.test(val)) {
+                inputEl.value = val.replace(/@errors\b/g, '').trim();
+                inputEl.style.height = 'auto';
+                inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+                requestErrorsContext();
+                hideAutocomplete();
+                return;
+            }
+
+            // @openfiles — show open editor tabs in autocomplete
+            if (/@openfiles\b/.test(val)) {
+                inputEl.value = val.replace(/@openfiles\b/g, '').trim();
+                inputEl.style.height = 'auto';
+                inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+                requestOpenFiles();
+                // keep autocomplete open — it will be populated when response arrives
+                return;
+            }
+
             // Slash command autocomplete (when first char is /)
             const slashMatch = val.match(/^(\/[\w]*)$/);
             if (slashMatch) {
@@ -1646,8 +1795,8 @@
         });
 
         inputEl.addEventListener('keydown', (e) => {
-            // Submit on Enter (not Shift+Enter)
-            if (e.key === 'Enter' && !e.shiftKey && !autocompleteEl.classList.contains('visible')) {
+            // Submit on Enter (not Shift+Enter) or Ctrl/Cmd+Enter
+            if (e.key === 'Enter' && (!e.shiftKey || e.ctrlKey || e.metaKey) && !autocompleteEl.classList.contains('visible')) {
                 e.preventDefault();
                 submitMessage();
                 return;
@@ -1789,13 +1938,23 @@
         setSending(true);
         setLoading(true, 'Thinking…');
 
-        // Separate file paths from image/codebase context entries
-        const sendContextFiles = contextFiles.filter(f => !f.isImage && !f.isCodebase).map(f => f.path);
+        // Append inline content from special context chips (@git, @errors)
+        const specialParts = [];
+        for (const f of contextFiles) {
+            if (f.isGit && f.content)    specialParts.push('\n\n[Git Context]\n' + f.content);
+            if (f.isErrors && f.content) specialParts.push('\n\n[Workspace Problems]\n' + f.content);
+        }
+        const finalMessage = specialParts.length > 0 ? rawText + specialParts.join('') : rawText;
+
+        // Separate file paths from image/codebase/special context entries
+        const sendContextFiles = contextFiles
+            .filter(f => !f.isImage && !f.isCodebase && !f.isGit && !f.isErrors)
+            .map(f => f.path);
         const hasCodebase = contextFiles.some(f => f.isCodebase);
 
         vscode.postMessage({
             type: 'send',
-            message: rawText,
+            message: finalMessage,
             contextFiles: sendContextFiles,
             fileRefs,
             useCodebase: hasCodebase,
@@ -2304,6 +2463,24 @@
             renderAutocomplete(event.data.files || []);
         }
     });
+
+    // ── Context inject buttons ─────────────────────────────────────────────────
+    if (gitBtn) {
+        gitBtn.addEventListener('click', () => requestGitContext());
+    }
+    if (errorsBtn) {
+        errorsBtn.addEventListener('click', () => requestErrorsContext());
+    }
+    if (autoAttachBtn) {
+        autoAttachBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'toggleAutoAttach' });
+        });
+    }
+    if (contextWarningNewBtn) {
+        contextWarningNewBtn.addEventListener('click', () => {
+            newChatBtn && newChatBtn.click();
+        });
+    }
 
     // ── Signal ready ──────────────────────────────────────────────────────────
     vscode.postMessage({ type: 'ready' });

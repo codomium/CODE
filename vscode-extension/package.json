@@ -2,7 +2,7 @@
   "name": "open-claude-code",
   "displayName": "Open Claude Code",
   "description": "AI coding assistant powered by Claude — Cursor-style chat panel with file context, code apply, tool visualization and more",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "publisher": "open-claude-code",
   "engines": {
     "vscode": "^1.90.0"
@@ -184,6 +184,11 @@
           "default": true,
           "description": "Show the Cursor-style sidebar chat panel (requires reload)"
         },
+        "openClaudeCode.autoAttachActiveFile": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically include the currently active editor file as context with every message sent"
+        },
         "openClaudeCode.pinnedFiles": {
           "type": "array",
           "default": [],
@@ -197,7 +202,7 @@
     "prepackage": "node scripts/prepare-bundle.js",
     "package": "vsce package --no-dependencies",
     "postpackage": "node scripts/cleanup-bundle.js",
-    "install-vsix": "code --install-extension open-claude-code-1.3.0.vsix"
+    "install-vsix": "code --install-extension open-claude-code-1.4.0.vsix"
   },
   "devDependencies": {
     "@types/vscode": "^1.90.0",

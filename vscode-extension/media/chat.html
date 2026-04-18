@@ -242,6 +242,12 @@
     <span id="loading-text">Thinking…</span>
   </div>
 
+  <!-- Context warning (shown when context fills up) -->
+  <div id="context-warning" style="display:none">
+    <span id="context-warning-text"></span>
+    <button id="context-warning-new">New chat</button>
+  </div>
+
   <!-- Context file chips -->
   <div id="context-files" style="display:none"></div>
 
@@ -271,6 +277,24 @@
             <line x1="8" y1="7" x2="8" y2="11"/>
           </svg>
         </button>
+        <button class="input-btn ctx-inject-btn" id="git-btn" title="Inject git status into context — or type @git">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="5" cy="4" r="1.5"/><circle cx="11" cy="4" r="1.5"/>
+            <circle cx="8" cy="12" r="1.5"/>
+            <line x1="5" y1="5.5" x2="5" y2="8"/><line x1="11" y1="5.5" x2="11" y2="8"/>
+            <path d="M5 8 Q5 10 8 10.5 Q11 10 11 8"/>
+          </svg>
+        </button>
+        <button class="input-btn ctx-inject-btn" id="errors-btn" title="Inject workspace errors/warnings — or type @errors">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M8 2L1 13h14z"/><line x1="8" y1="7" x2="8" y2="10"/><circle cx="8" cy="12" r="0.6" fill="currentColor"/>
+          </svg>
+        </button>
+        <button class="input-btn ctx-inject-btn" id="auto-attach-btn" title="Auto-attach active file to every message (toggle)">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M9.5 2.5l4 4-6.5 6.5-4-4 6.5-6.5z"/><line x1="2" y1="14" x2="5" y2="11"/>
+          </svg>
+        </button>
         <button id="stop-btn" title="Stop generation">■ Stop</button>
         <button id="send-btn" title="Send (Enter)">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -281,7 +305,7 @@
       </div>
     </div>
     <div id="input-hints">
-      <span><span class="hint-key">Enter</span> send</span>
+      <span><span class="hint-key">Enter</span> / <span class="hint-key">Ctrl+Enter</span> send</span>
       <span><span class="hint-key">Shift+Enter</span> newline</span>
       <span><span class="hint-key">Ctrl+L</span> focus</span>
       <span><span class="hint-key">Esc</span> stop</span>
