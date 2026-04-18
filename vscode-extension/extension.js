@@ -440,7 +440,9 @@ class ClaudeCodeViewProvider {
                 // Persist the current in-progress session so it survives VS Code restarts.
                 // Called by the webview after every completed response (stop event).
                 if (msg.messages && msg.messages.length > 0) {
-                    // Cap at 200 entries to avoid unbounded growth
+                    // Cap at 200 messages (individual user/assistant entries) to avoid
+                    // unbounded growth of the active session storage. This is separate
+                    // from the 30-session cap on the chat history archive.
                     const capped = msg.messages.slice(-200);
                     await this._context.globalState.update('openClaudeCode.activeSession', {
                         messages: capped,

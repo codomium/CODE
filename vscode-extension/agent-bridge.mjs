@@ -200,6 +200,9 @@ async function handleResume(loop, messages) {
             return { role: 'assistant', content: [{ type: 'text', text: m.text }] };
         });
     loop.state.turnCount = messages.filter(m => m.type === 'user').length;
+    // Token usage is reset to zero because the stored messages contain only plain
+    // text (not the original API token counts). The stats bar will show usage for
+    // new turns going forward; this is correct and expected behaviour on resume.
     loop.state.tokenUsage = { input: 0, output: 0 };
     emit({ type: 'ready' });
 }
