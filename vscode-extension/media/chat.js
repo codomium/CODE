@@ -32,6 +32,7 @@
     let lastUserMessage = '';    // for ↑ recall and regenerate
     let autoScroll = true;       // auto-scroll while streaming
     let pinnedFiles = [];        // files pinned across sessions
+    let currentSessionId = null; // null for new sessions; history entry ID when continuing a saved session
 
     // ── DOM refs ─────────────────────────────────────────────────────────────
     const messagesEl   = document.getElementById('messages');
@@ -1081,9 +1082,14 @@
                 setLoading(false);
                 setSending(false);
                 // Auto-save current session after every response so VS Code restarts
-                // don't lose the conversation (Claude Premium-style session memory).
+                // don't lose the conversation (Cursor/Claude-style session memory).
                 if (sessionMessages.length > 0) {
-                    vscode.postMessage({ type: 'autoSaveSession', messages: [...sessionMessages] });
+                    vscode.postMessage({ type: 'autoSaveSession', messages: [...sessionMessages], sessionId: currentSessionId });
+                    if (currentSessionId) {
+                        // Also update the history entry so it stays current when the
+                        // user opens the history panel without clicking "New" first.
+                        vscode.postMessage({ type: 'updateSession', id: currentSessionId, messages: [...sessionMessages] });
+                    }
                 }
                 break;
 
@@ -1108,6 +1114,7 @@
                 currentStreamMsg = null;
                 activeToolCards = {};
                 sessionMessages = [];
+                currentSessionId = null;
                 tokenStats = { input: 0, output: 0 };
                 costTotal = 0;
                 startTime = Date.now();
@@ -1125,7 +1132,12 @@
                 break;
 
             case 'sessionData':
-                renderHistorySession(msg.messages || []);
+                renderHistorySession(msg.messages || [], msg.id || null);
+                break;
+
+            case 'resumeFromHistoryData':
+                // Direct-resume (Cursor-style): triggered when user clicks a history item
+                restoreSessionMessages(msg.messages || [], msg.id || null);
                 break;
 
             case 'fileContent':
@@ -1172,7 +1184,7 @@
                 updateContextBar();
                 // Restore active session if one was persisted (survives VS Code restarts)
                 if (msg.activeSession && msg.activeSession.length > 0) {
-                    restoreSessionMessages(msg.activeSession);
+                    restoreSessionMessages(msg.activeSession, msg.activeSessionId || null);
                 } else {
                     showWelcome(!!msg.hasApiKey);
                 }
@@ -1612,11 +1624,31 @@
 
     // ── History Panel ─────────────────────────────────────────────────────────
     /**
+     * Persist the current in-progress session before switching to another one.
+     * - If we're continuing a history session, update that entry (no duplicate).
+     * - If this is a fresh session, create a new history entry.
+     */
+    function saveCurrentSessionIfNeeded() {
+        if (sessionMessages.length === 0) return;
+        if (currentSessionId) {
+            vscode.postMessage({ type: 'updateSession', id: currentSessionId, messages: [...sessionMessages] });
+        } else {
+            vscode.postMessage({ type: 'saveSession', messages: [...sessionMessages] });
+        }
+    }
+
+    /**
      * Restore a set of saved messages into the main chat panel and re-inject them
      * into the agent bridge, so the model remembers the full conversation context
-     * (Claude Premium-style session memory).
+     * (Cursor/Claude-style session memory).
+     *
+     * @param {Array}       messages  - saved user/assistant message objects
+     * @param {string|null} sessionId - history entry ID being continued; null for a new session
      */
-    function restoreSessionMessages(messages) {
+    function restoreSessionMessages(messages, sessionId) {
+        // Track which history session we are editing so we update it (not duplicate it)
+        currentSessionId = sessionId !== undefined ? sessionId : null;
+
         // Clear current UI state
         messagesEl.innerHTML = '';
         sessionMessages = [];
@@ -1626,6 +1658,11 @@
         startTime = Date.now();
         updateStats();
         updateContextBar();
+
+        if (messages.length === 0) {
+            showWelcome(true);
+            return;
+        }
 
         // Replay messages into the DOM (addUserMessage / finalizeAssistantMessage
         // only touch the DOM and sessionMessages — they do not send to the bridge)
@@ -1715,18 +1752,24 @@
             item.appendChild(titleEl);
             item.appendChild(metaEl);
             item.appendChild(actionsEl);
+            // Cursor/Claude-style: clicking a session immediately switches to it.
+            // The current session is auto-saved before switching so nothing is lost.
             item.addEventListener('click', () => {
-                vscode.postMessage({ type: 'loadSession', id: session.id });
+                saveCurrentSessionIfNeeded();
+                closeHistoryPanel();
+                vscode.postMessage({ type: 'resumeFromHistory', id: session.id });
             });
             historyList.appendChild(item);
         }
     }
 
     let historyViewMessages = []; // messages of the session currently shown in history panel
+    let historyViewSessionId = null; // ID of that session
 
-    function renderHistorySession(messages) {
+    function renderHistorySession(messages, sessionId) {
         if (!historySessionView) return;
         historyViewMessages = messages;
+        historyViewSessionId = sessionId || null;
         historySessionView.innerHTML = '';
 
         // ── Resume button ────────────────────────────────────────────────────
@@ -1736,15 +1779,12 @@
 
             const resumeBtn = document.createElement('button');
             resumeBtn.className = 'history-resume-btn';
-            resumeBtn.textContent = '▶ Resume this conversation';
-            resumeBtn.title = 'Continue this conversation — the model will remember everything from the beginning';
+            resumeBtn.textContent = '▶ Continue this conversation';
+            resumeBtn.title = 'Switch to this conversation — the model will remember everything from the beginning';
             resumeBtn.addEventListener('click', () => {
-                // Save the current in-progress session to history before switching
-                if (sessionMessages.length > 0) {
-                    vscode.postMessage({ type: 'saveSession', messages: [...sessionMessages] });
-                }
+                saveCurrentSessionIfNeeded();
                 closeHistoryPanel();
-                restoreSessionMessages(historyViewMessages);
+                restoreSessionMessages(historyViewMessages, historyViewSessionId);
             });
 
             resumeBar.appendChild(resumeBtn);
@@ -1797,10 +1837,9 @@
     // ── Toolbar buttons ───────────────────────────────────────────────────────
     if (newChatBtn) {
         newChatBtn.addEventListener('click', () => {
-            if (sessionMessages.length > 0) {
-                vscode.postMessage({ type: 'saveSession', messages: [...sessionMessages] });
-                sessionMessages = [];
-            }
+            saveCurrentSessionIfNeeded();
+            sessionMessages = [];
+            currentSessionId = null;
             vscode.postMessage({ type: 'clear' });
             // Immediately restore pinned files for the new session
             contextFiles = pinnedFiles.map(f => ({ ...f, pinned: true }));

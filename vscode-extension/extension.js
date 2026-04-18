@@ -27,6 +27,9 @@ const fs = require('fs');
 
 const PARTICIPANT_ID = 'open-claude-code.claude';
 const BRIDGE_SCRIPT  = path.join(__dirname, 'agent-bridge.mjs');
+// Maximum number of user/assistant messages kept in a persisted session.
+// Applies to both the in-progress activeSession and updated history entries.
+const MAX_SESSION_MESSAGES = 200;
 
 // ── AgentBridge ─────────────────────────────────────────────────────────────
 
@@ -271,6 +274,8 @@ class ClaudeCodeViewProvider {
                 const activeSession = this._context.globalState.get('openClaudeCode.activeSession');
                 const activeMessages = (activeSession && Array.isArray(activeSession.messages) && activeSession.messages.length > 0)
                     ? activeSession.messages : null;
+                // Also restore the session ID so continued messages update the right history entry
+                const activeSessionId = (activeSession && activeSession.sessionId) || null;
                 this.postMessage({
                     type: 'initialized',
                     model: config.get('model') || 'claude-sonnet-4-6',
@@ -278,6 +283,7 @@ class ClaudeCodeViewProvider {
                     thinkingMode: !!config.get('nvidiaThinkingMode'),
                     hasApiKey,
                     activeSession: activeMessages,
+                    activeSessionId,
                 });
                 break;
             }
@@ -404,7 +410,32 @@ class ClaudeCodeViewProvider {
                 const sessions = this._context.globalState.get('openClaudeCode.chatHistory', []);
                 const session = sessions.find(s => s.id === msg.id);
                 if (session) {
-                    this.postMessage({ type: 'sessionData', messages: session.messages || [] });
+                    // Include id so the webview can track which session is being viewed
+                    this.postMessage({ type: 'sessionData', id: session.id, messages: session.messages || [] });
+                }
+                break;
+            }
+
+            case 'resumeFromHistory': {
+                // Direct-resume (Cursor-style): load and immediately switch to a history session.
+                const sessions = this._context.globalState.get('openClaudeCode.chatHistory', []);
+                const session = sessions.find(s => s.id === msg.id);
+                if (session) {
+                    this.postMessage({ type: 'resumeFromHistoryData', id: session.id, messages: session.messages || [] });
+                }
+                break;
+            }
+
+            case 'updateSession': {
+                // Update an existing history entry (after adding new messages to a resumed session).
+                const sessions = this._context.globalState.get('openClaudeCode.chatHistory', []);
+                const sess = sessions.find(s => s.id === msg.id);
+                if (sess && Array.isArray(msg.messages) && msg.messages.length > 0) {
+                    sess.messages = msg.messages.slice(-MAX_SESSION_MESSAGES);
+                    sess.messageCount = sess.messages.length;
+                    const firstUser = sess.messages.find(m => m.type === 'user');
+                    if (firstUser) sess.title = firstUser.text.slice(0, 80).replace(/\n/g, ' ');
+                    await this._context.globalState.update('openClaudeCode.chatHistory', sessions);
                 }
                 break;
             }
@@ -443,9 +474,11 @@ class ClaudeCodeViewProvider {
                     // Cap at 200 messages (individual user/assistant entries) to avoid
                     // unbounded growth of the active session storage. This is separate
                     // from the 30-session cap on the chat history archive.
-                    const capped = msg.messages.slice(-200);
+                    const capped = msg.messages.slice(-MAX_SESSION_MESSAGES);
                     await this._context.globalState.update('openClaudeCode.activeSession', {
                         messages: capped,
+                        // Track which history session this is so it can be updated on restart
+                        sessionId: msg.sessionId || null,
                         savedAt: Date.now(),
                     });
                 } else {
