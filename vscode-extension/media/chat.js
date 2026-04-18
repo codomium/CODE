@@ -36,9 +36,24 @@
     let currentSessionTitle = ''; // first-message snippet shown in header
     let allHistorySessions = []; // full session list for filtering + welcome screen
     let historyFilterQuery = ''; // active search filter in history panel
+    let streamStartTime = 0;     // timestamp when first stream token arrived
+    let streamOutputChars = 0;   // approx output chars during current stream (for t/s)
+    let lastStreamTps = 0;       // final t/s from last completed stream
 
     /** Max characters shown in the header session-title indicator */
     const SESSION_TITLE_DISPLAY_LENGTH = 55;
+
+    /** Rough approximation: characters per token for streaming speed calculation */
+    const CHARS_PER_TOKEN_ESTIMATE = 4;
+
+    /** Minimum input characters before the char-count hint is shown */
+    const CHAR_COUNT_MIN_DISPLAY = 50;
+
+    /** Input characters at which the count turns warning color */
+    const CHAR_COUNT_WARNING_THRESHOLD = 3000;
+
+    /** Interval (approx chars) between loading-text speed updates during streaming */
+    const STREAM_UPDATE_THROTTLE_CHARS = 80;
 
     // ── DOM refs ─────────────────────────────────────────────────────────────
     const messagesEl   = document.getElementById('messages');
@@ -92,6 +107,11 @@
     const historySearchBar  = document.getElementById('history-search-bar');
     const welcomeRecentEl   = document.getElementById('welcome-recent');
     const welcomeRecentList = document.getElementById('welcome-recent-list');
+    const activeFileBtn     = document.getElementById('active-file-btn');
+    const statsSpeedItem    = document.getElementById('stats-speed-item');
+    const statsSpeedEl      = document.getElementById('stats-speed');
+    const statsMsgsEl       = document.getElementById('stats-msgs');
+    const charCountEl       = document.getElementById('char-count');
 
     /** Models that support NVIDIA thinking mode toggle */
     const THINKING_CAPABLE_MODELS = new Set([
@@ -415,16 +435,23 @@
         const runBtnHtml = isRunnable
             ? `<button class="code-btn run-btn" data-action="run" data-block-id="${id}" title="Run in integrated terminal">▷ Run</button>`
             : '';
-        // Use data-block-id for event delegation; no inline onclick
+
+        // Wrap each line in a <span class="line"> for CSS line numbers
+        const rawLines = highlighted.split('\n');
+        // Remove a single trailing empty line artifact from split
+        if (rawLines.length > 1 && rawLines[rawLines.length - 1] === '') rawLines.pop();
+        const numberedCode = rawLines.map(l => `<span class="line">${l}</span>`).join('\n');
+
         return `<div class="code-block" id="${id}" data-block-id="${id}" data-lang="${escapeHtml(lang || '')}">
   <div class="code-header">
     <span class="code-lang">${escapeHtml(displayLang)}</span>
     <div class="code-actions">
-      ${runBtnHtml}<button class="code-btn copy-btn" data-action="copy" data-block-id="${id}">Copy</button>
+      ${runBtnHtml}<button class="code-btn wrap-btn" data-action="wrap" data-block-id="${id}" title="Toggle word wrap">↔</button>
+      <button class="code-btn copy-btn" data-action="copy" data-block-id="${id}">Copy</button>
       <button class="code-btn apply-btn" data-action="apply" data-block-id="${id}">Apply to file…</button>
     </div>
   </div>
-  <pre><code>${highlighted}</code></pre>
+  <pre><code>${numberedCode}</code></pre>
 </div>`;
     }
 
@@ -455,6 +482,14 @@
             vscode.postMessage({ type: 'runInTerminal', code: entry.code });
             btn.textContent = '✓ Sent';
             setTimeout(() => { btn.textContent = '▷ Run'; }, 1500);
+        } else if (action === 'wrap') {
+            const block = document.getElementById(blockId);
+            if (!block) return;
+            const pre = block.querySelector('pre');
+            if (!pre) return;
+            const isWrapped = pre.classList.toggle('wrapped');
+            btn.classList.toggle('active', isWrapped);
+            btn.title = isWrapped ? 'Word wrap: on (click to disable)' : 'Toggle word wrap';
         }
     });
 
@@ -643,6 +678,22 @@
         editBtn.addEventListener('click', () => editUserMessage(div, text));
         meta.appendChild(editBtn);
 
+        const copyUserBtn = document.createElement('button');
+        copyUserBtn.className = 'msg-user-copy-btn';
+        copyUserBtn.title = 'Copy message';
+        copyUserBtn.textContent = '⎘';
+        copyUserBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'copyToClipboard', text });
+            copyUserBtn.textContent = '✓';
+            setTimeout(() => { copyUserBtn.textContent = '⎘'; }, 1500);
+        });
+        meta.appendChild(copyUserBtn);
+
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'msg-time';
+        timeSpan.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        meta.appendChild(timeSpan);
+
         const bubble = document.createElement('div');
         bubble.className = 'msg-bubble';
         bubble.textContent = text;   // safe — textContent
@@ -659,10 +710,12 @@
         const div = document.createElement('div');
         div.className = 'msg msg-assistant';
         div._regenPrompt = lastUserMessage;    // capture for regenerate
+        const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         div.innerHTML = `
             <div class="msg-header">
                 <div class="msg-avatar">✦</div>
                 <span class="msg-name">Claude</span>
+                <span class="msg-time">${escapeHtml(ts)}</span>
             </div>
             <div class="msg-content streaming-cursor"></div>
         `;
@@ -676,6 +729,17 @@
         const el = getOrCreateAssistantMessage();
         // Accumulate raw text on element, re-render markdown periodically
         el._rawText = (el._rawText || '') + text;
+
+        // Track streaming speed
+        if (!streamStartTime) streamStartTime = Date.now();
+        streamOutputChars += text.length;
+        // Update loading label roughly every STREAM_UPDATE_THROTTLE_CHARS to avoid too many DOM writes
+        if (streamOutputChars % STREAM_UPDATE_THROTTLE_CHARS < text.length) {
+            const elapsed = (Date.now() - streamStartTime) / 1000;
+            const tps = elapsed > 0.5 ? Math.round(streamOutputChars / CHARS_PER_TOKEN_ESTIMATE / elapsed) : 0;
+            if (tps > 0) setLoading(true, `Generating… (${tps} t/s)`);
+        }
+
         // Throttle rendering to avoid layout thrashing
         if (!el._renderPending) {
             el._renderPending = true;
@@ -691,6 +755,19 @@
     }
 
     function finalizeAssistantMessage(content) {
+        // Compute and record final streaming speed
+        if (streamStartTime && streamOutputChars > 0) {
+            const elapsed = (Date.now() - streamStartTime) / 1000;
+            lastStreamTps = elapsed > 0.1 ? Math.round(streamOutputChars / CHARS_PER_TOKEN_ESTIMATE / elapsed) : 0;
+        }
+        streamStartTime = 0;
+        streamOutputChars = 0;
+        // Show speed in stats bar
+        if (statsSpeedItem && statsSpeedEl && lastStreamTps > 0) {
+            statsSpeedEl.textContent = lastStreamTps;
+            statsSpeedItem.style.display = '';
+        }
+
         if (currentStreamMsg) {
             const raw = currentStreamMsg._rawText || content || '';
             currentStreamMsg.innerHTML = raw ? renderMarkdown(raw) : '';
@@ -1169,6 +1246,10 @@
                 tokenStats = { input: 0, output: 0 };
                 costTotal = 0;
                 startTime = Date.now();
+                streamStartTime = 0;
+                streamOutputChars = 0;
+                lastStreamTps = 0;
+                if (statsSpeedItem) statsSpeedItem.style.display = 'none';
                 // Restore pinned files into context
                 contextFiles = pinnedFiles.map(f => ({ ...f, pinned: true }));
                 renderContextFiles();
@@ -1388,6 +1469,10 @@
                 ? `$${costTotal.toFixed(4)}`
                 : `$${costTotal.toFixed(3)}`;
         }
+        if (statsMsgsEl) {
+            const msgs = Math.floor(sessionMessages.length / 2); // count exchanges
+            statsMsgsEl.textContent = msgs > 0 ? String(msgs) : '0';
+        }
     }
 
     // ── Context files ─────────────────────────────────────────────────────────
@@ -1457,6 +1542,18 @@
             // Auto-resize
             inputEl.style.height = 'auto';
             inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+
+            // Character count hint
+            if (charCountEl) {
+                const len = inputEl.value.length;
+                if (len > CHAR_COUNT_MIN_DISPLAY) {
+                    charCountEl.textContent = len >= 1000 ? `${(len/1000).toFixed(1)}k chars` : `${len} chars`;
+                    charCountEl.classList.toggle('warn', len > CHAR_COUNT_WARNING_THRESHOLD);
+                } else {
+                    charCountEl.textContent = '';
+                    charCountEl.classList.remove('warn');
+                }
+            }
 
             const val = inputEl.value;
             const cursorPos = inputEl.selectionStart;
@@ -1619,12 +1716,20 @@
 
     // ── Slash command autocomplete ─────────────────────────────────────────────
     const SLASH_COMMANDS = [
-        { cmd: '/clear',  desc: 'Clear conversation and start fresh' },
-        { cmd: '/new',    desc: 'Start a new conversation (alias for /clear)' },
-        { cmd: '/model',  desc: 'Switch AI model' },
-        { cmd: '/export', desc: 'Export conversation as Markdown' },
-        { cmd: '/help',   desc: 'Show keyboard shortcuts' },
-        { cmd: '/pin',    desc: 'Pin all current context files to every session' },
+        { cmd: '/clear',    desc: 'Clear conversation and start fresh' },
+        { cmd: '/new',      desc: 'Start a new conversation (alias for /clear)' },
+        { cmd: '/model',    desc: 'Switch AI model' },
+        { cmd: '/export',   desc: 'Export conversation as Markdown' },
+        { cmd: '/help',     desc: 'Show keyboard shortcuts' },
+        { cmd: '/pin',      desc: 'Pin all current context files to every session' },
+        { cmd: '/explain',  desc: 'Explain the code/file in context',      template: 'Explain what this code does in simple terms:' },
+        { cmd: '/fix',      desc: 'Find and fix bugs',                      template: 'Find and fix the bugs in this code. Explain what was wrong:' },
+        { cmd: '/refactor', desc: 'Refactor for clarity and maintainability', template: 'Refactor this code to be cleaner and more maintainable:' },
+        { cmd: '/test',     desc: 'Write unit tests',                       template: 'Write comprehensive unit tests for this code:' },
+        { cmd: '/review',   desc: 'Code review for bugs and improvements',  template: 'Review this code for potential bugs, security issues, and improvements:' },
+        { cmd: '/docs',     desc: 'Generate documentation comments',        template: 'Generate clear documentation/JSDoc comments for this code:' },
+        { cmd: '/commit',   desc: 'Generate a git commit message',          template: 'Generate a concise git commit message (conventional commits style) for these changes:' },
+        { cmd: '/optimize', desc: 'Optimize code for performance',          template: 'Optimize this code for better performance and explain the changes:' },
     ];
 
     function showSlashCommands(prefix) {
@@ -1653,6 +1758,18 @@
     }
 
     function executeSlashCommand(cmd) {
+        // Check for template commands first
+        const slashEntry = SLASH_COMMANDS.find(c => c.cmd === cmd);
+        if (slashEntry && slashEntry.template) {
+            if (inputEl) {
+                inputEl.value = slashEntry.template + '\n';
+                inputEl.style.height = 'auto';
+                inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+                inputEl.focus();
+                inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+            }
+            return;
+        }
         switch (cmd) {
             case '/clear':
             case '/new':   newChatBtn && newChatBtn.click(); break;
@@ -1663,7 +1780,8 @@
                 addSystemMessage(
                     'Keyboard shortcuts: Enter=send · Shift+Enter=newline · @=add file · ' +
                     '@codebase=full codebase · /=commands · ↑=recall last message · ' +
-                    'Ctrl+L=focus input · Ctrl+F=search · Ctrl+K=inline edit · Esc=stop'
+                    'Ctrl+L=focus input · Ctrl+F=search · Ctrl+K=inline edit · Esc=stop\n\n' +
+                    'Template commands: /explain · /fix · /refactor · /test · /review · /docs · /commit · /optimize'
                 );
                 break;
         }
@@ -1991,6 +2109,12 @@
     if (addFileBtn) {
         addFileBtn.addEventListener('click', () => {
             vscode.postMessage({ type: 'pickFile' });
+        });
+    }
+
+    if (activeFileBtn) {
+        activeFileBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'addActiveFile' });
         });
     }
 

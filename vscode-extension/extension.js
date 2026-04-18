@@ -579,6 +579,23 @@ class ClaudeCodeViewProvider {
                 break;
             }
 
+            case 'addActiveFile': {
+                // Add the currently active editor file to the webview context chips.
+                const editor = vscode.window.activeTextEditor;
+                if (editor) {
+                    const filePath = editor.document.fileName;
+                    const fileName = path.basename(filePath);
+                    this.postMessage({
+                        type: 'fileContent',
+                        name: fileName,
+                        path: filePath,
+                    });
+                } else {
+                    vscode.window.showInformationMessage('No active editor — open a file first.');
+                }
+                break;
+            }
+
             default:
                 break;
         }

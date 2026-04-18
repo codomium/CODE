@@ -604,6 +604,35 @@ select:focus { border-color: var(--accent); }
 .msg-user:hover .msg-edit-btn { opacity: 1; }
 .msg-edit-btn:hover { color: var(--accent); }
 
+/* User message copy button */
+.msg-user-copy-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 0 2px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.1s;
+  line-height: 1;
+}
+.msg-user:hover .msg-user-copy-btn { opacity: 1; }
+.msg-user-copy-btn:hover { color: var(--success); }
+
+/* Message timestamp */
+.msg-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+  user-select: none;
+  margin-left: 2px;
+}
+.msg:hover .msg-time { opacity: 1; }
+.msg-assistant .msg-header .msg-time { margin-left: auto; }
+
 .msg-user-edit-area {
   align-self: flex-end;
   max-width: 92%;
@@ -821,12 +850,44 @@ select:focus { border-color: var(--accent); }
 
 .code-block pre {
   margin: 0;
-  padding: 10px 12px;
+  padding: 10px 12px 10px 3.6em;
   overflow-x: auto;
   font-family: var(--font-code);
   font-size: 12px;
   line-height: 1.6;
   color: var(--text);
+  counter-reset: lines;
+}
+
+/* Word-wrap mode */
+.code-block pre.wrapped {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Line number spans */
+.code-block .line {
+  display: block;
+  counter-increment: lines;
+  position: relative;
+}
+.code-block .line::before {
+  content: counter(lines);
+  position: absolute;
+  left: -3.2em;
+  width: 2.6em;
+  text-align: right;
+  color: var(--text-muted);
+  opacity: 0.35;
+  user-select: none;
+  pointer-events: none;
+  font-size: 0.9em;
+}
+
+/* Wrap button active state */
+.code-btn.wrap-btn.active {
+  color: var(--accent);
+  border-color: rgba(0,122,204,0.4);
 }
 
 .code-block code {
@@ -1111,6 +1172,13 @@ select:focus { border-color: var(--accent); }
   font-family: var(--font-code);
   font-size: 10px;
 }
+.char-count-hint {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: color 0.15s;
+}
+.char-count-hint.warn { color: var(--warning); }
 
 /* ---- Stats Bar ---- */
 #stats-bar {

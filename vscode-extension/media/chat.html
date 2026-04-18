@@ -233,6 +233,14 @@
             <path d="M11 1l2 2"/>
           </svg>
         </button>
+        <button class="input-btn" id="active-file-btn" title="Add currently open editor file to context">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M4 2h6l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"/>
+            <path d="M9 2v4h4"/>
+            <line x1="6" y1="9" x2="10" y2="9"/>
+            <line x1="8" y1="7" x2="8" y2="11"/>
+          </svg>
+        </button>
         <button id="stop-btn" title="Stop generation">■ Stop</button>
         <button id="send-btn" title="Send (Enter)">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -248,6 +256,7 @@
       <span><span class="hint-key">Ctrl+L</span> focus</span>
       <span><span class="hint-key">Esc</span> stop</span>
       <span><span class="hint-key">@</span> add file</span>
+      <span id="char-count" class="char-count-hint"></span>
     </div>
   </div>
 
@@ -256,7 +265,9 @@
     <span class="stat-item"><span class="dot"></span> <span id="stats-model">—</span></span>
     <span class="stat-item">🪙 <span id="stats-tokens">0</span> tk</span>
     <span class="stat-item"><span id="stats-cost">$0.0000</span></span>
+    <span class="stat-item" id="stats-msgs-item">💬 <span id="stats-msgs">0</span></span>
     <div class="stat-spacer"></div>
+    <span class="stat-item" id="stats-speed-item" style="display:none">⚡ <span id="stats-speed">0</span> t/s</span>
     <span class="stat-item">⏱ <span id="stats-time">0s</span></span>
   </div>
 
