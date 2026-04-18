@@ -13,7 +13,7 @@
   <img alt="npm" src="https://img.shields.io/npm/v/@ruvnet/open-claude-code?style=flat-square&label=npm" />
   <img alt="License" src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" />
   <img alt="Nightly" src="https://img.shields.io/badge/nightly-verified_releases-brightgreen?style=flat-square" />
-  <img alt="VSCode" src="https://img.shields.io/badge/VSCode-extension_v1.3.0-blue?style=flat-square&logo=visualstudiocode" />
+  <img alt="VSCode" src="https://img.shields.io/badge/VSCode-extension_v1.4.0-blue?style=flat-square&logo=visualstudiocode" />
 </p>
 
 > **Automated Nightly Releases** — Open Claude Code automatically detects new [Claude Code](https://www.npmjs.com/package/@anthropic-ai/claude-code) releases, runs 903+ tests to verify zero regressions, and publishes verified builds with AI-powered discovery analysis. See [Releases](https://github.com/ruvnet/open-claude-code/releases) | [ADR-001](docs/adr/ADR-001-nightly-verified-release-pipeline.md) | [pi.ruv.io](https://pi.ruv.io)
@@ -52,7 +52,7 @@ A **Cursor-style AI coding assistant** built directly into VSCode — no termina
 The extension package is included in the repo and ready to install:
 
 ```bash
-code --install-extension vscode-extension/open-claude-code-1.3.0.vsix
+code --install-extension vscode-extension/open-claude-code-1.4.0.vsix
 ```
 
 Or use **Extensions → … → Install from VSIX…** and pick the file from the `vscode-extension/` folder.
@@ -63,7 +63,7 @@ Or use **Extensions → … → Install from VSIX…** and pick the file from th
 cd vscode-extension
 npm install
 npm run package          # prepackage → package → postpackage
-code --install-extension open-claude-code-1.3.0.vsix
+code --install-extension open-claude-code-1.4.0.vsix
 ```
 
 ### Highlights
@@ -80,6 +80,13 @@ code --install-extension open-claude-code-1.3.0.vsix
 - **Streaming responses** — tokens arrive in real time with an animated cursor
 - **Tool visualization** — collapsible cards showing each tool execution and result
 - **`@file` context injection** — type `@filename` or click 📄 to add a file to the prompt
+- **`@git` context chip** — type `@git` or click the git button to inject current branch, changed files, and diff summary into the conversation
+- **`@errors` context chip** — type `@errors` or click the ⚠ button to inject all workspace errors and warnings (VSCode diagnostics) into the conversation
+- **`@openfiles` autocomplete** — type `@openfiles` to pick from your currently open editor tabs
+- **Auto-attach active file** — toggle the 🔗 button (or `openClaudeCode.autoAttachActiveFile` setting) to automatically include the active editor with every message
+- **Context-full warning** — a banner appears when the context window exceeds 85%, with a quick "New chat" shortcut
+- **Per-message response time** — each assistant reply shows how long it took to generate (visible on hover)
+- **Ctrl/Cmd+Enter** — additional keyboard shortcut for sending a message
 - **Multi-provider** — Anthropic Claude, OpenAI GPT, Google Gemini, NVIDIA NIM
 - **Model & permission-mode selector** — switch model and mode directly from the UI
 - **Session stats** — token count, cost estimate, and elapsed time always visible
@@ -404,6 +411,26 @@ This is a **clean-room implementation** — no leaked source used. Architecture 
 ---
 
 ## 🆕 What's New
+
+### v1.4.0 — Context Injection, Auto-Attach & UX Improvements
+
+**Richer context injection**
+- **`@git` chip** — type `@git` in the chat input (or click the new git toolbar button) to instantly inject the current branch name, `git status`, and `git diff --stat` as a context chip. The content is appended inline to your message so the model has full awareness of your working-tree state
+- **`@errors` chip** — type `@errors` (or click the ⚠ toolbar button) to pull all workspace errors and warnings from the VSCode diagnostics API into the conversation, grouped by severity
+- **`@openfiles` autocomplete** — type `@openfiles` to populate the `@` autocomplete dropdown with every file currently open in the editor, making it easy to add multiple files without typing paths
+- **Auto-attach active file** — click the new 🔗 toolbar button (or set `openClaudeCode.autoAttachActiveFile: true` in settings) to automatically include the currently active editor file with every message you send — no need to type `@` every time
+
+**UX improvements**
+- **Context-full warning banner** — a visible warning appears above the input when context usage exceeds 85%, with a one-click "New chat" shortcut to start fresh before responses degrade
+- **Per-message response time** — each assistant reply now shows how long it took to generate (e.g. `3.2s`) in the message header, visible on hover
+- **Ctrl/Cmd+Enter** — added as a second keyboard shortcut for sending messages (in addition to plain Enter)
+- **Consistent keyboard hint** — the input area now shows `Enter / Ctrl+Enter send` to surface the new shortcut
+
+### v1.3.1 — Bridge Stability & Session Memory Fixes
+
+- **Session memory loss fix** — agent bridge now auto-injects the full session history whenever a new bridge process is created (covers crashes, settings changes, and VS Code restarts)
+- **Bridge queue stability** — message queue is drained reliably on bridge restart so in-flight requests are not lost
+- **Max-turns UX hint** — when the agent loop hits its turn limit a visible `⚙ Max turns reached` notice is shown with instructions to continue
 
 ### v1.3.0 — Session Memory (Claude Premium-style)
 
