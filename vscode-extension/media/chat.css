@@ -105,6 +105,18 @@ html, body {
 .header-btn.icon-only { padding: 3px 4px; }
 .header-btn.locked { color: var(--warning); border-color: rgba(220,220,170,0.4); }
 
+/* Current session indicator beside the logo */
+#session-indicator {
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
 /* ---- Search bar ---- */
 #search-bar {
   display: flex;
@@ -480,6 +492,60 @@ select:focus { border-color: var(--accent); }
   font-size: 10px;
 }
 
+.welcome-section-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+  margin-top: 8px;
+  align-self: flex-start;
+}
+
+#welcome-recent {
+  width: 100%;
+  max-width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#welcome-recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.welcome-recent-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+  width: 100%;
+}
+.welcome-recent-item:hover {
+  border-color: var(--accent);
+  background: var(--bg-input);
+}
+.welcome-recent-title {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.welcome-recent-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
 /* Example prompts (both welcome & setup) */
 .example-prompt {
   background: var(--bg-elevated);
@@ -746,6 +812,11 @@ select:focus { border-color: var(--accent); }
   background: rgba(0,122,204,0.15);
   border-color: var(--accent);
   color: var(--accent);
+}
+.code-btn.run-btn:hover {
+  background: rgba(78,201,176,0.15);
+  border-color: var(--success);
+  color: var(--success);
 }
 
 .code-block pre {
@@ -1307,6 +1378,27 @@ select:focus { border-color: var(--accent); }
   gap: 4px;
 }
 
+/* History search bar */
+#history-search-bar {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg);
+}
+#history-search {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 11px;
+  padding: 4px 8px;
+  outline: none;
+  font-family: var(--font-ui);
+}
+#history-search:focus { border-color: var(--accent); }
+#history-search-bar.hidden { display: none; }
+
 #history-session-view {
   flex: 1;
   overflow-y: auto;
@@ -1332,6 +1424,12 @@ select:focus { border-color: var(--accent); }
   border-color: var(--accent);
   background: var(--bg-input);
 }
+/* Active (currently open) session */
+.history-item.active {
+  border-color: rgba(0,122,204,0.5);
+  background: rgba(0,122,204,0.07);
+}
+.history-item.active .history-item-title { color: var(--accent); }
 .history-item-title {
   font-size: 12px;
   color: var(--text);

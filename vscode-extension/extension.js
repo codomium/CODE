@@ -565,6 +565,20 @@ class ClaudeCodeViewProvider {
                 break;
             }
 
+            case 'runInTerminal': {
+                // Send shell code directly to the integrated terminal.
+                // Reuse an existing "Claude Code" terminal if one is already open.
+                const code = String(msg.code || '').trim();
+                if (!code) break;
+                let terminal = vscode.window.terminals.find(t => t.name === 'Claude Code');
+                if (!terminal) {
+                    terminal = vscode.window.createTerminal({ name: 'Claude Code' });
+                }
+                terminal.show(true); // true = preserve editor focus
+                terminal.sendText(code);
+                break;
+            }
+
             default:
                 break;
         }

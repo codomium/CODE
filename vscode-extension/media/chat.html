@@ -13,6 +13,7 @@
   <!-- Header -->
   <div id="header">
     <span id="header-title">✦ Claude Code</span>
+    <span id="session-indicator" title=""></span>
     <div id="header-spacer"></div>
     <button class="header-btn" id="history-btn" title="Chat history">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -196,6 +197,10 @@
           <div class="example-prompt" id="ex-w-2">fix the bug in server.js</div>
           <div class="example-prompt" id="ex-w-3">write unit tests for utils.ts</div>
         </div>
+        <div id="welcome-recent" style="display:none">
+          <div class="welcome-section-label">Recent conversations</div>
+          <div id="welcome-recent-list"></div>
+        </div>
       </div><!-- /#welcome-normal -->
 
     </div><!-- /#welcome -->
@@ -240,6 +245,7 @@
     <div id="input-hints">
       <span><span class="hint-key">Enter</span> send</span>
       <span><span class="hint-key">Shift+Enter</span> newline</span>
+      <span><span class="hint-key">Ctrl+L</span> focus</span>
       <span><span class="hint-key">Esc</span> stop</span>
       <span><span class="hint-key">@</span> add file</span>
     </div>
@@ -274,6 +280,9 @@
     <span id="history-panel-title">Chat History</span>
     <div style="flex:1"></div>
     <button class="header-btn" id="history-close-btn" title="Close history">✕</button>
+  </div>
+  <div id="history-search-bar">
+    <input id="history-search" type="text" placeholder="Filter conversations…" autocomplete="off" spellcheck="false">
   </div>
   <div id="history-list"></div>
   <div id="history-session-view"></div>

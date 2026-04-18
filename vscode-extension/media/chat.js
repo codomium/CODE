@@ -33,6 +33,12 @@
     let autoScroll = true;       // auto-scroll while streaming
     let pinnedFiles = [];        // files pinned across sessions
     let currentSessionId = null; // null for new sessions; history entry ID when continuing a saved session
+    let currentSessionTitle = ''; // first-message snippet shown in header
+    let allHistorySessions = []; // full session list for filtering + welcome screen
+    let historyFilterQuery = ''; // active search filter in history panel
+
+    /** Max characters shown in the header session-title indicator */
+    const SESSION_TITLE_DISPLAY_LENGTH = 55;
 
     // ── DOM refs ─────────────────────────────────────────────────────────────
     const messagesEl   = document.getElementById('messages');
@@ -81,6 +87,11 @@
     const contextUsedEl  = document.getElementById('context-used');
     const contextMaxEl   = document.getElementById('context-max');
     const contextFillEl  = document.getElementById('context-bar-fill');
+    const sessionIndicator  = document.getElementById('session-indicator');
+    const historySearch     = document.getElementById('history-search');
+    const historySearchBar  = document.getElementById('history-search-bar');
+    const welcomeRecentEl   = document.getElementById('welcome-recent');
+    const welcomeRecentList = document.getElementById('welcome-recent-list');
 
     /** Models that support NVIDIA thinking mode toggle */
     const THINKING_CAPABLE_MODELS = new Set([
@@ -104,6 +115,18 @@
         'mistralai/mistral-large-2-instruct':          128000,
         'mistralai/mixtral-8x22b-instruct-v0.1':        64000,
     };
+
+    // ── Session indicator (header title) ─────────────────────────────────────
+    function updateSessionIndicator() {
+        if (!sessionIndicator) return;
+        if (currentSessionTitle) {
+            sessionIndicator.textContent = '— ' + currentSessionTitle;
+            sessionIndicator.title = currentSessionTitle;
+        } else {
+            sessionIndicator.textContent = '';
+            sessionIndicator.title = '';
+        }
+    }
 
     // ── Tick elapsed time ────────────────────────────────────────────────────
     setInterval(() => {
@@ -379,18 +402,25 @@
     // Store code by ID to avoid large data attributes and XSS risks
     const codeStore = new Map();
 
+    /** Languages whose code can be sent directly to the integrated terminal */
+    const RUNNABLE_LANGS = new Set(['sh', 'bash', 'shell', 'zsh', 'cmd', 'batch', 'powershell', 'ps1']);
+
     function buildCodeBlockHtml(code, lang) {
         const id = `cb-${++codeBlockIdCounter}`;
         const highlighted = highlightCode(code, lang);
         const displayLang = lang || 'code';
         // Store code in JS Map, not in DOM attribute
         codeStore.set(id, { code, language: lang || '' });
+        const isRunnable = RUNNABLE_LANGS.has((lang || '').toLowerCase());
+        const runBtnHtml = isRunnable
+            ? `<button class="code-btn run-btn" data-action="run" data-block-id="${id}" title="Run in integrated terminal">▷ Run</button>`
+            : '';
         // Use data-block-id for event delegation; no inline onclick
         return `<div class="code-block" id="${id}" data-block-id="${id}" data-lang="${escapeHtml(lang || '')}">
   <div class="code-header">
     <span class="code-lang">${escapeHtml(displayLang)}</span>
     <div class="code-actions">
-      <button class="code-btn copy-btn" data-action="copy" data-block-id="${id}">Copy</button>
+      ${runBtnHtml}<button class="code-btn copy-btn" data-action="copy" data-block-id="${id}">Copy</button>
       <button class="code-btn apply-btn" data-action="apply" data-block-id="${id}">Apply to file…</button>
     </div>
   </div>
@@ -419,6 +449,12 @@
             // Show preview immediately; diff will arrive when extension reads active file
             showApplyModal(entry.code, null, null);
             vscode.postMessage({ type: 'getActiveFileContent' });
+        } else if (action === 'run') {
+            const entry = codeStore.get(blockId);
+            if (!entry) return;
+            vscode.postMessage({ type: 'runInTerminal', code: entry.code });
+            btn.textContent = '✓ Sent';
+            setTimeout(() => { btn.textContent = '▷ Run'; }, 1500);
         }
     });
 
@@ -585,6 +621,11 @@
         hideWelcome();
         currentStreamMsg = null;
         lastUserMessage = text;
+        // Derive session title from the first user message
+        if (sessionMessages.length === 0 && text.trim()) {
+            currentSessionTitle = text.trim().slice(0, SESSION_TITLE_DISPLAY_LENGTH).replace(/\n/g, ' ');
+            updateSessionIndicator();
+        }
         sessionMessages.push({ type: 'user', text });
 
         const div = document.createElement('div');
@@ -1031,6 +1072,14 @@
             e.preventDefault();
             showSearchBar();
         }
+        // Ctrl+L — focus the chat input (standard AI IDE shortcut)
+        if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+            e.preventDefault();
+            if (inputEl) {
+                inputEl.focus();
+                inputEl.select();
+            }
+        }
     });
     window.addEventListener('message', (event) => {
         const msg = event.data;
@@ -1115,6 +1164,8 @@
                 activeToolCards = {};
                 sessionMessages = [];
                 currentSessionId = null;
+                currentSessionTitle = '';
+                updateSessionIndicator();
                 tokenStats = { input: 0, output: 0 };
                 costTotal = 0;
                 startTime = Date.now();
@@ -1125,10 +1176,18 @@
                 updateContextBar();
                 // Clear the auto-saved active session
                 vscode.postMessage({ type: 'autoSaveSession', messages: [] });
+                // Refresh recent sessions for the newly-visible welcome screen
+                if (allHistorySessions.length > 0) {
+                    updateWelcomeRecentSessions(allHistorySessions);
+                } else {
+                    vscode.postMessage({ type: 'getHistory' });
+                }
                 break;
 
             case 'historyData':
-                renderHistoryList(msg.sessions || []);
+                allHistorySessions = msg.sessions || [];
+                renderHistoryList(allHistorySessions, historyFilterQuery);
+                updateWelcomeRecentSessions(allHistorySessions);
                 break;
 
             case 'sessionData':
@@ -1210,9 +1269,57 @@
         if (hasKey) {
             setupGuideEl.style.display = 'none';
             welcomeNormalEl.style.display = 'flex';
+            // Pre-populate recent sessions if already loaded; otherwise fetch
+            if (allHistorySessions.length > 0) {
+                updateWelcomeRecentSessions(allHistorySessions);
+            } else {
+                vscode.postMessage({ type: 'getHistory' });
+            }
         } else {
             setupGuideEl.style.display = 'flex';
             welcomeNormalEl.style.display = 'none';
+            if (welcomeRecentEl) welcomeRecentEl.style.display = 'none';
+        }
+    }
+
+    /**
+     * Render the top-3 most recent sessions on the welcome screen so users can
+     * instantly resume a conversation without opening the history panel.
+     */
+    function updateWelcomeRecentSessions(sessions) {
+        if (!welcomeRecentEl || !welcomeRecentList) return;
+        // Only show when the welcome screen is actually visible
+        if (!welcomeEl || welcomeEl.classList.contains('hidden')) {
+            welcomeRecentEl.style.display = 'none';
+            return;
+        }
+        const recent = sessions.slice(0, 3);
+        if (recent.length === 0) {
+            welcomeRecentEl.style.display = 'none';
+            return;
+        }
+        welcomeRecentEl.style.display = '';
+        welcomeRecentList.innerHTML = '';
+        for (const s of recent) {
+            const item = document.createElement('button');
+            item.className = 'welcome-recent-item';
+
+            const titleDiv = document.createElement('div');
+            titleDiv.className = 'welcome-recent-title';
+            titleDiv.textContent = s.title || 'Untitled conversation';
+
+            const metaDiv = document.createElement('div');
+            metaDiv.className = 'welcome-recent-meta';
+            const date = new Date(s.createdAt);
+            const msgCount = s.messageCount || 0;
+            metaDiv.textContent = `${date.toLocaleDateString()} · ${msgCount} msg${msgCount !== 1 ? 's' : ''}`;
+
+            item.appendChild(titleDiv);
+            item.appendChild(metaDiv);
+            item.addEventListener('click', () => {
+                vscode.postMessage({ type: 'resumeFromHistory', id: s.id });
+            });
+            welcomeRecentList.appendChild(item);
         }
     }
 
@@ -1513,6 +1620,7 @@
     // ── Slash command autocomplete ─────────────────────────────────────────────
     const SLASH_COMMANDS = [
         { cmd: '/clear',  desc: 'Clear conversation and start fresh' },
+        { cmd: '/new',    desc: 'Start a new conversation (alias for /clear)' },
         { cmd: '/model',  desc: 'Switch AI model' },
         { cmd: '/export', desc: 'Export conversation as Markdown' },
         { cmd: '/help',   desc: 'Show keyboard shortcuts' },
@@ -1546,7 +1654,8 @@
 
     function executeSlashCommand(cmd) {
         switch (cmd) {
-            case '/clear':   newChatBtn && newChatBtn.click(); break;
+            case '/clear':
+            case '/new':   newChatBtn && newChatBtn.click(); break;
             case '/model':   modelSelect && modelSelect.focus(); break;
             case '/export':  exportBtn && exportBtn.click(); break;
             case '/pin':     contextFiles.filter(f => !f.pinned).forEach(f => togglePinFile(f)); break;
@@ -1554,7 +1663,7 @@
                 addSystemMessage(
                     'Keyboard shortcuts: Enter=send · Shift+Enter=newline · @=add file · ' +
                     '@codebase=full codebase · /=commands · ↑=recall last message · ' +
-                    'Ctrl+F=search · Ctrl+K=inline edit · Esc=stop'
+                    'Ctrl+L=focus input · Ctrl+F=search · Ctrl+K=inline edit · Esc=stop'
                 );
                 break;
         }
@@ -1649,6 +1758,11 @@
         // Track which history session we are editing so we update it (not duplicate it)
         currentSessionId = sessionId !== undefined ? sessionId : null;
 
+        // Derive header title from the first user message in this session
+        const firstUser = messages.find(m => m.type === 'user');
+        currentSessionTitle = firstUser ? firstUser.text.trim().slice(0, SESSION_TITLE_DISPLAY_LENGTH).replace(/\n/g, ' ') : '';
+        updateSessionIndicator();
+
         // Clear current UI state
         messagesEl.innerHTML = '';
         sessionMessages = [];
@@ -1685,6 +1799,10 @@
         if (historyList) historyList.style.display = '';
         if (historyBackBtn) historyBackBtn.style.display = 'none';
         if (historyPanelTitle) historyPanelTitle.textContent = 'Chat History';
+        if (historySearchBar) historySearchBar.classList.remove('hidden');
+        // Reset search when panel opens
+        if (historySearch) historySearch.value = '';
+        historyFilterQuery = '';
         vscode.postMessage({ type: 'getHistory' });
     }
 
@@ -1692,19 +1810,25 @@
         if (historyPanel) historyPanel.classList.remove('visible');
     }
 
-    function renderHistoryList(sessions) {
+    function renderHistoryList(sessions, filter) {
         if (!historyList) return;
         historyList.innerHTML = '';
-        if (sessions.length === 0) {
+        const lFilter = (filter || '').toLowerCase().trim();
+        const displayed = lFilter
+            ? sessions.filter(s => (s.title || '').toLowerCase().includes(lFilter))
+            : sessions;
+        if (displayed.length === 0) {
             const empty = document.createElement('div');
             empty.className = 'history-empty';
-            empty.textContent = 'No saved conversations yet.\nStart a new chat and click "New" to save it to history.';
+            empty.textContent = lFilter
+                ? 'No conversations match your search.'
+                : 'No saved conversations yet.\nStart a new chat and click "New" to save it to history.';
             historyList.appendChild(empty);
             return;
         }
-        for (const session of sessions) {
+        for (const session of displayed) {
             const item = document.createElement('div');
-            item.className = 'history-item';
+            item.className = 'history-item' + (session.id === currentSessionId ? ' active' : '');
 
             const titleEl = document.createElement('div');
             titleEl.className = 'history-item-title';
@@ -1820,17 +1944,34 @@
         historySessionView.classList.add('visible');
         if (historyBackBtn) historyBackBtn.style.display = '';
         if (historyPanelTitle) historyPanelTitle.textContent = 'Past Conversation';
+        if (historySearchBar) historySearchBar.classList.add('hidden');
         historySessionView.scrollTop = 0;
     }
 
     if (historyBtn) historyBtn.addEventListener('click', openHistoryPanel);
     if (historyCloseBtn) historyCloseBtn.addEventListener('click', closeHistoryPanel);
+
+    // Filter history list as user types
+    if (historySearch) {
+        historySearch.addEventListener('input', () => {
+            historyFilterQuery = historySearch.value.trim();
+            renderHistoryList(allHistorySessions, historyFilterQuery);
+        });
+        historySearch.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                historySearch.value = '';
+                historyFilterQuery = '';
+                renderHistoryList(allHistorySessions, '');
+            }
+        });
+    }
     if (historyBackBtn) {
         historyBackBtn.addEventListener('click', () => {
             if (historySessionView) historySessionView.classList.remove('visible');
             if (historyList) historyList.style.display = '';
             if (historyBackBtn) historyBackBtn.style.display = 'none';
             if (historyPanelTitle) historyPanelTitle.textContent = 'Chat History';
+            if (historySearchBar) historySearchBar.classList.remove('hidden');
         });
     }
 
