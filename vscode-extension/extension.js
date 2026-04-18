@@ -21,7 +21,7 @@
  */
 
 const vscode = require('vscode');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -344,6 +344,7 @@ class ClaudeCodeViewProvider {
                     model: config.get('model') || 'claude-sonnet-4-6',
                     mode:  config.get('permissionMode') || 'default',
                     thinkingMode: !!config.get('nvidiaThinkingMode'),
+                    autoAttachActiveFile: !!config.get('autoAttachActiveFile'),
                     hasApiKey,
                     activeSession: activeMessages,
                     activeSessionId,
@@ -659,6 +660,79 @@ class ClaudeCodeViewProvider {
                 break;
             }
 
+            case 'getGitContext': {
+                const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                if (!cwd) {
+                    this.postMessage({ type: 'gitContext', content: '(no workspace folder open)', branch: '' });
+                    break;
+                }
+                const run = (args) => new Promise((resolve) => {
+                    execFile('git', args, { cwd, timeout: 5000 }, (err, stdout) => {
+                        resolve(err ? '' : stdout.trim());
+                    });
+                });
+                const [branch, status, diffStat] = await Promise.all([
+                    run(['rev-parse', '--abbrev-ref', 'HEAD']),
+                    run(['status', '--short']),
+                    run(['diff', '--stat']),
+                ]);
+                const parts = [];
+                if (branch) parts.push(`Branch: ${branch}`);
+                parts.push(status ? `Changed files:\n${status}` : 'Working tree clean');
+                if (diffStat) parts.push(`Diff summary:\n${diffStat}`);
+                this.postMessage({ type: 'gitContext', content: parts.join('\n\n'), branch: branch || '' });
+                break;
+            }
+
+            case 'getWorkspaceDiagnostics': {
+                const diags = [];
+                for (const [uri, ds] of vscode.languages.getDiagnostics()) {
+                    const rel = vscode.workspace.asRelativePath(uri);
+                    for (const d of ds) {
+                        if (d.severity > 1) continue; // skip hints and info
+                        diags.push({
+                            file: rel,
+                            line: d.range.start.line + 1,
+                            col:  d.range.start.character + 1,
+                            severity: d.severity === 0 ? 'error' : 'warning',
+                            message: d.message,
+                            source: d.source || '',
+                        });
+                    }
+                }
+                diags.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'error' ? -1 : 1));
+                this.postMessage({ type: 'workspaceDiagnostics', diagnostics: diags });
+                break;
+            }
+
+            case 'getOpenEditors': {
+                const files = [];
+                const seen = new Set();
+                for (const group of (vscode.window.tabGroups?.all || [])) {
+                    for (const tab of group.tabs) {
+                        const uri = tab.input?.uri;
+                        if (uri && !seen.has(uri.fsPath)) {
+                            seen.add(uri.fsPath);
+                            files.push({
+                                name: path.basename(uri.fsPath),
+                                path: uri.fsPath,
+                                relativePath: vscode.workspace.asRelativePath(uri.fsPath),
+                            });
+                        }
+                    }
+                }
+                this.postMessage({ type: 'openEditors', files });
+                break;
+            }
+
+            case 'toggleAutoAttach': {
+                const config = vscode.workspace.getConfiguration('openClaudeCode');
+                const next = !config.get('autoAttachActiveFile');
+                await config.update('autoAttachActiveFile', next, vscode.ConfigurationTarget.Global);
+                this.postMessage({ type: 'autoAttachState', enabled: next });
+                break;
+            }
+
             default:
                 break;
         }
@@ -679,6 +753,14 @@ class ClaudeCodeViewProvider {
                     if (fs.existsSync(abs)) allPaths.add(abs);
                 }
             }
+        }
+
+        // Auto-attach active editor when the setting is on (works even if no
+        // other context files were explicitly added by the user).
+        const promptConfig = vscode.workspace.getConfiguration('openClaudeCode');
+        if (promptConfig.get('autoAttachActiveFile')) {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) allPaths.add(editor.document.fileName);
         }
 
         if (allPaths.size > 0) {
