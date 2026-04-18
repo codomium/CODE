@@ -13,7 +13,7 @@
   <img alt="npm" src="https://img.shields.io/npm/v/@ruvnet/open-claude-code?style=flat-square&label=npm" />
   <img alt="License" src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" />
   <img alt="Nightly" src="https://img.shields.io/badge/nightly-verified_releases-brightgreen?style=flat-square" />
-  <img alt="VSCode" src="https://img.shields.io/badge/VSCode-extension-blue?style=flat-square&logo=visualstudiocode" />
+  <img alt="VSCode" src="https://img.shields.io/badge/VSCode-extension_v1.3.0-blue?style=flat-square&logo=visualstudiocode" />
 </p>
 
 > **Automated Nightly Releases** — Open Claude Code automatically detects new [Claude Code](https://www.npmjs.com/package/@anthropic-ai/claude-code) releases, runs 903+ tests to verify zero regressions, and publishes verified builds with AI-powered discovery analysis. See [Releases](https://github.com/ruvnet/open-claude-code/releases) | [ADR-001](docs/adr/ADR-001-nightly-verified-release-pipeline.md) | [pi.ruv.io](https://pi.ruv.io)
@@ -52,7 +52,7 @@ A **Cursor-style AI coding assistant** built directly into VSCode — no termina
 The extension package is included in the repo and ready to install:
 
 ```bash
-code --install-extension vscode-extension/open-claude-code-1.2.0.vsix
+code --install-extension vscode-extension/open-claude-code-1.3.0.vsix
 ```
 
 Or use **Extensions → … → Install from VSIX…** and pick the file from the `vscode-extension/` folder.
@@ -63,7 +63,7 @@ Or use **Extensions → … → Install from VSIX…** and pick the file from th
 cd vscode-extension
 npm install
 npm run package          # prepackage → package → postpackage
-code --install-extension open-claude-code-1.2.0.vsix
+code --install-extension open-claude-code-1.3.0.vsix
 ```
 
 ### Highlights
@@ -73,7 +73,9 @@ code --install-extension open-claude-code-1.2.0.vsix
 - **Full tool access** — all 25+ agent tools (Read, Write, Edit, Bash, Glob, Grep, WebFetch, …)
 - **Rich markdown + syntax highlighting** — code blocks with copy & Apply-to-file buttons
 - **Copy whole answer** — ⎘ Copy button on every assistant reply copies the full response to the clipboard
-- **Chat history** — History button shows all past conversations (Cursor-style panel); "New" auto-saves the current session; sessions persist across VS Code restarts
+- **Session memory** — the model remembers the **full conversation from the beginning** across VS Code restarts (Claude Premium-style); auto-saves after every response and restores on reopen
+- **Chat history** — History button shows all past conversations (Cursor-style panel); "New" auto-saves the current session; sessions persist across VS Code restarts; up to 30 sessions are retained
+- **▶ Resume** — any past session can be fully resumed: all messages are restored in the chat panel and the model's context is re-injected into the agent bridge
 - **⚙ Settings shortcut** — gear button in the header opens the extension settings directly — no need to navigate through the marketplace
 - **Streaming responses** — tokens arrive in real time with an animated cursor
 - **Tool visualization** — collapsible cards showing each tool execution and result
@@ -402,6 +404,18 @@ This is a **clean-room implementation** — no leaked source used. Architecture 
 ---
 
 ## 🆕 What's New
+
+### v1.3.0 — Session Memory (Claude Premium-style)
+
+**Session Memory algorithm** — the model now remembers the full conversation from the very beginning, just like Claude premium sessions:
+
+- **Auto-persist active session** — the current conversation is automatically saved to VS Code `globalState` after every response. If you close and reopen VS Code, your conversation is fully restored — messages in the chat panel **and** the model's context in the bridge subprocess
+- **Session resume from history** — every past conversation in the History panel now has a **▶ Resume** button. Clicking it:
+  1. Saves your current in-progress chat to history
+  2. Restores all messages of the selected session in the main chat panel
+  3. Re-injects the full conversation into the agent loop (`resume` command in `agent-bridge.mjs`) so the model has complete memory of everything said — no context lost
+- **New `resume` bridge protocol** — `agent-bridge.mjs` accepts `{"type":"resume","messages":[…]}` which converts the stored UI message format back to the Anthropic/OpenAI API message format and sets it directly on the agent loop's state
+- **Auto-clear on new chat** — starting a new conversation clears the persisted active session so the next restart begins fresh
 
 ### v1.2.0 — Chat History, Settings Button & Copy Answer
 

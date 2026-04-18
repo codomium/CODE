@@ -140,6 +140,25 @@ class AgentBridge {
         return this._queue;
     }
 
+    /**
+     * Restore conversation history into the agent loop so the model remembers
+     * the full session from the beginning (Claude Premium-style session memory).
+     */
+    resume(messages) {
+        this._queue = this._queue.then(
+            () => new Promise((resolve) => {
+                this._currentHandler = (event) => {
+                    if (event.type === 'ready' || event.type === 'error') {
+                        this._currentHandler = null;
+                        resolve();
+                    }
+                };
+                this._send({ type: 'resume', messages });
+            })
+        );
+        return this._queue;
+    }
+
     _send(obj) {
         if (!this._proc || !this._started) throw new Error('Agent bridge is not running');
         this._proc.stdin.write(JSON.stringify(obj) + '\n');
@@ -248,12 +267,17 @@ class ClaudeCodeViewProvider {
                     process.env.NVIDIA_API_KEY ||
                     config.get('nvidiaApiKey')
                 );
+                // Restore any active session persisted before the last VS Code restart
+                const activeSession = this._context.globalState.get('openClaudeCode.activeSession');
+                const activeMessages = (activeSession && Array.isArray(activeSession.messages) && activeSession.messages.length > 0)
+                    ? activeSession.messages : null;
                 this.postMessage({
                     type: 'initialized',
                     model: config.get('model') || 'claude-sonnet-4-6',
                     mode:  config.get('permissionMode') || 'default',
                     thinkingMode: !!config.get('nvidiaThinkingMode'),
                     hasApiKey,
+                    activeSession: activeMessages,
                 });
                 break;
             }
@@ -409,6 +433,36 @@ class ClaudeCodeViewProvider {
                     messageCount: s.messages ? s.messages.length : 0,
                 }));
                 this.postMessage({ type: 'historyData', sessions: sessionList });
+                break;
+            }
+
+            case 'autoSaveSession': {
+                // Persist the current in-progress session so it survives VS Code restarts.
+                // Called by the webview after every completed response (stop event).
+                if (msg.messages && msg.messages.length > 0) {
+                    // Cap at 200 entries to avoid unbounded growth
+                    const capped = msg.messages.slice(-200);
+                    await this._context.globalState.update('openClaudeCode.activeSession', {
+                        messages: capped,
+                        savedAt: Date.now(),
+                    });
+                } else {
+                    await this._context.globalState.update('openClaudeCode.activeSession', null);
+                }
+                break;
+            }
+
+            case 'resumeSession': {
+                // Restore conversation history into the agent bridge so the model
+                // remembers the full session (Claude Premium-style session memory).
+                if (msg.messages && msg.messages.length > 0) {
+                    try {
+                        const agentBridge = await getBridge();
+                        await agentBridge.resume(msg.messages);
+                    } catch (err) {
+                        this.postMessage({ type: 'error', message: 'Failed to resume session: ' + err.message });
+                    }
+                }
                 break;
             }
 

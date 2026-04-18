@@ -1355,6 +1355,27 @@ select:focus { border-color: var(--accent); }
   white-space: pre-line;
 }
 
+/* ---- Resume session bar ---- */
+.history-resume-bar {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+}
+.history-resume-btn {
+  width: 100%;
+  padding: 8px 14px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.history-resume-btn:hover { background: var(--accent-hover); }
+
 /* ---- Copy button on assistant messages ---- */
 .msg-copy-btn {
   background: transparent;
