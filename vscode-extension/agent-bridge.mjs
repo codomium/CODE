@@ -144,6 +144,8 @@ async function init() {
             queue = queue.then(() => handleRun(loop, msg.message));
         } else if (msg.type === 'model') {
             queue = queue.then(() => handleModelSwitch(loop, msg.model));
+        } else if (msg.type === 'resume') {
+            queue = queue.then(() => handleResume(loop, msg.messages || []));
         }
     });
 
@@ -177,6 +179,31 @@ async function handleModelSwitch(loop, model) {
     if (model && typeof model === 'string') {
         loop.state.model = model;
     }
+    emit({ type: 'ready' });
+}
+
+/**
+ * Restore conversation history into the agent loop so the model remembers
+ * the full session from the beginning (like Claude Premium session memory).
+ *
+ * UI messages (type:'user'/'assistant', text:'...') are converted to the
+ * API message format used by the agent loop.
+ */
+async function handleResume(loop, messages) {
+    loop.state.messages = messages
+        .filter(m => (m.type === 'user' || m.type === 'assistant') && m.text)
+        .map(m => {
+            if (m.type === 'user') {
+                return { role: 'user', content: m.text };
+            }
+            // Assistant messages use content-block array format for API compatibility
+            return { role: 'assistant', content: [{ type: 'text', text: m.text }] };
+        });
+    loop.state.turnCount = messages.filter(m => m.type === 'user').length;
+    // Token usage is reset to zero because the stored messages contain only plain
+    // text (not the original API token counts). The stats bar will show usage for
+    // new turns going forward; this is correct and expected behaviour on resume.
+    loop.state.tokenUsage = { input: 0, output: 0 };
     emit({ type: 'ready' });
 }
 

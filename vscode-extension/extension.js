@@ -27,6 +27,22 @@ const fs = require('fs');
 
 const PARTICIPANT_ID = 'open-claude-code.claude';
 const BRIDGE_SCRIPT  = path.join(__dirname, 'agent-bridge.mjs');
+// Maximum number of user/assistant messages kept in a persisted session.
+// Applies to both the in-progress activeSession and updated history entries.
+const MAX_SESSION_MESSAGES = 200;
+
+// ── Rate-limit retry ─────────────────────────────────────────────────────────
+/** Backoff delays (ms) for successive retry attempts */
+const RETRY_DELAYS_MS = [3000, 8000, 20000];
+
+/**
+ * Returns true when the error message looks like a transient rate-limit /
+ * server-overload error that is worth retrying automatically.
+ * @param {string} msg
+ */
+function isRateLimitError(msg) {
+    return /rate.?limit|overload|too.?many.?request|capacity|529|503|quota/i.test(msg || '');
+}
 
 // ── AgentBridge ─────────────────────────────────────────────────────────────
 
@@ -140,6 +156,25 @@ class AgentBridge {
         return this._queue;
     }
 
+    /**
+     * Restore conversation history into the agent loop so the model remembers
+     * the full session from the beginning (Claude Premium-style session memory).
+     */
+    resume(messages) {
+        this._queue = this._queue.then(
+            () => new Promise((resolve) => {
+                this._currentHandler = (event) => {
+                    if (event.type === 'ready' || event.type === 'error') {
+                        this._currentHandler = null;
+                        resolve();
+                    }
+                };
+                this._send({ type: 'resume', messages });
+            })
+        );
+        return this._queue;
+    }
+
     _send(obj) {
         if (!this._proc || !this._started) throw new Error('Agent bridge is not running');
         this._proc.stdin.write(JSON.stringify(obj) + '\n');
@@ -248,12 +283,20 @@ class ClaudeCodeViewProvider {
                     process.env.NVIDIA_API_KEY ||
                     config.get('nvidiaApiKey')
                 );
+                // Restore any active session persisted before the last VS Code restart
+                const activeSession = this._context.globalState.get('openClaudeCode.activeSession');
+                const activeMessages = (activeSession && Array.isArray(activeSession.messages) && activeSession.messages.length > 0)
+                    ? activeSession.messages : null;
+                // Also restore the session ID so continued messages update the right history entry
+                const activeSessionId = (activeSession && activeSession.sessionId) || null;
                 this.postMessage({
                     type: 'initialized',
                     model: config.get('model') || 'claude-sonnet-4-6',
                     mode:  config.get('permissionMode') || 'default',
                     thinkingMode: !!config.get('nvidiaThinkingMode'),
                     hasApiKey,
+                    activeSession: activeMessages,
+                    activeSessionId,
                 });
                 break;
             }
@@ -380,7 +423,32 @@ class ClaudeCodeViewProvider {
                 const sessions = this._context.globalState.get('openClaudeCode.chatHistory', []);
                 const session = sessions.find(s => s.id === msg.id);
                 if (session) {
-                    this.postMessage({ type: 'sessionData', messages: session.messages || [] });
+                    // Include id so the webview can track which session is being viewed
+                    this.postMessage({ type: 'sessionData', id: session.id, messages: session.messages || [] });
+                }
+                break;
+            }
+
+            case 'resumeFromHistory': {
+                // Direct-resume (Cursor-style): load and immediately switch to a history session.
+                const sessions = this._context.globalState.get('openClaudeCode.chatHistory', []);
+                const session = sessions.find(s => s.id === msg.id);
+                if (session) {
+                    this.postMessage({ type: 'resumeFromHistoryData', id: session.id, messages: session.messages || [] });
+                }
+                break;
+            }
+
+            case 'updateSession': {
+                // Update an existing history entry (after adding new messages to a resumed session).
+                const sessions = this._context.globalState.get('openClaudeCode.chatHistory', []);
+                const sess = sessions.find(s => s.id === msg.id);
+                if (sess && Array.isArray(msg.messages) && msg.messages.length > 0) {
+                    sess.messages = msg.messages.slice(-MAX_SESSION_MESSAGES);
+                    sess.messageCount = sess.messages.length;
+                    const firstUser = sess.messages.find(m => m.type === 'user');
+                    if (firstUser) sess.title = firstUser.text.slice(0, 80).replace(/\n/g, ' ');
+                    await this._context.globalState.update('openClaudeCode.chatHistory', sessions);
                 }
                 break;
             }
@@ -409,6 +477,40 @@ class ClaudeCodeViewProvider {
                     messageCount: s.messages ? s.messages.length : 0,
                 }));
                 this.postMessage({ type: 'historyData', sessions: sessionList });
+                break;
+            }
+
+            case 'autoSaveSession': {
+                // Persist the current in-progress session so it survives VS Code restarts.
+                // Called by the webview after every completed response (stop event).
+                if (msg.messages && msg.messages.length > 0) {
+                    // Cap at 200 messages (individual user/assistant entries) to avoid
+                    // unbounded growth of the active session storage. This is separate
+                    // from the 30-session cap on the chat history archive.
+                    const capped = msg.messages.slice(-MAX_SESSION_MESSAGES);
+                    await this._context.globalState.update('openClaudeCode.activeSession', {
+                        messages: capped,
+                        // Track which history session this is so it can be updated on restart
+                        sessionId: msg.sessionId || null,
+                        savedAt: Date.now(),
+                    });
+                } else {
+                    await this._context.globalState.update('openClaudeCode.activeSession', null);
+                }
+                break;
+            }
+
+            case 'resumeSession': {
+                // Restore conversation history into the agent bridge so the model
+                // remembers the full session (Claude Premium-style session memory).
+                if (msg.messages && msg.messages.length > 0) {
+                    try {
+                        const agentBridge = await getBridge();
+                        await agentBridge.resume(msg.messages);
+                    } catch (err) {
+                        this.postMessage({ type: 'error', message: 'Failed to resume session: ' + err.message });
+                    }
+                }
                 break;
             }
 
@@ -476,6 +578,37 @@ class ClaudeCodeViewProvider {
                 break;
             }
 
+            case 'runInTerminal': {
+                // Send shell code directly to the integrated terminal.
+                // Reuse an existing "Claude Code" terminal if one is already open.
+                const code = String(msg.code || '').trim();
+                if (!code) break;
+                let terminal = vscode.window.terminals.find(t => t.name === 'Claude Code');
+                if (!terminal) {
+                    terminal = vscode.window.createTerminal({ name: 'Claude Code' });
+                }
+                terminal.show(true); // true = preserve editor focus
+                terminal.sendText(code);
+                break;
+            }
+
+            case 'addActiveFile': {
+                // Add the currently active editor file to the webview context chips.
+                const editor = vscode.window.activeTextEditor;
+                if (editor) {
+                    const filePath = editor.document.fileName;
+                    const fileName = path.basename(filePath);
+                    this.postMessage({
+                        type: 'fileContent',
+                        name: fileName,
+                        path: filePath,
+                    });
+                } else {
+                    vscode.window.showInformationMessage('No active editor — open a file first.');
+                }
+                break;
+            }
+
             default:
                 break;
         }
@@ -523,13 +656,75 @@ class ClaudeCodeViewProvider {
             return;
         }
 
-        await agentBridge.run(fullPrompt, (event) => {
+        // ── Retry loop (auto-recovers from rate-limit / overload errors) ────────
+        for (let attempt = 0; ; attempt++) {
             if (this._isCancelled) return;
-            this.postMessage(event);
-        });
 
-        if (!this._isCancelled) {
-            this.postMessage({ type: 'stop' });
+            let retryErrorMsg = null;
+
+            await agentBridge.run(fullPrompt, (event) => {
+                if (this._isCancelled) return;
+                // Intercept retryable errors — don't forward yet; we may recover
+                if (event.type === 'error' && isRateLimitError(event.message)) {
+                    retryErrorMsg = event.message;
+                    return;
+                }
+                this.postMessage(event);
+            });
+
+            if (this._isCancelled) return;
+
+            if (!retryErrorMsg) {
+                // Normal completion — stop was already forwarded by onEvent
+                this.postMessage({ type: 'stop' });
+                return;
+            }
+
+            // Retryable error — decide whether to retry or give up
+            if (attempt >= RETRY_DELAYS_MS.length) {
+                // All retries exhausted
+                this.postMessage({
+                    type: 'error',
+                    message: retryErrorMsg + ` (failed after ${attempt + 1} attempts)`,
+                });
+                this.postMessage({ type: 'stop' });
+                return;
+            }
+
+            const delaySec = Math.ceil(RETRY_DELAYS_MS[attempt] / 1000);
+            this.postMessage({
+                type: 'retrying',
+                attempt: attempt + 1,
+                delaySeconds: delaySec,
+                maxAttempts: RETRY_DELAYS_MS.length,
+            });
+
+            // Countdown ticks emitted every second so the UI can show a live timer
+            await new Promise((resolve) => {
+                let remaining = delaySec - 1;
+                const tick = setInterval(() => {
+                    if (this._isCancelled) { clearInterval(tick); resolve(); return; }
+                    if (remaining <= 0) { clearInterval(tick); resolve(); return; }
+                    this.postMessage({
+                        type: 'retrying',
+                        attempt: attempt + 1,
+                        delaySeconds: remaining,
+                        maxAttempts: RETRY_DELAYS_MS.length,
+                    });
+                    remaining--;
+                }, 1000);
+            });
+
+            if (this._isCancelled) return;
+
+            // Re-acquire bridge in case it restarted during the wait
+            try {
+                agentBridge = await getBridge();
+            } catch (err) {
+                this.postMessage({ type: 'error', message: 'Failed to restart agent: ' + err.message });
+                this.postMessage({ type: 'stop' });
+                return;
+            }
         }
     }
 

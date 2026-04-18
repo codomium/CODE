@@ -13,6 +13,7 @@
   <!-- Header -->
   <div id="header">
     <span id="header-title">✦ Claude Code</span>
+    <span id="session-indicator" title=""></span>
     <div id="header-spacer"></div>
     <button class="header-btn" id="history-btn" title="Chat history">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -86,6 +87,36 @@
       <input type="checkbox" id="thinking-toggle">
       <span class="toggle-slider"></span>
     </label>
+    <button class="header-btn" id="actions-btn" title="Quick Actions panel — click common tasks without typing commands">
+      ⚡ Actions
+    </button>
+  </div>
+
+  <!-- Mode description bar (shown briefly when mode changes) -->
+  <div id="mode-desc-bar" style="display:none">
+    <span id="mode-desc-text"></span>
+  </div>
+
+  <!-- Quick Actions panel (collapsible) -->
+  <div id="quick-actions" style="display:none">
+    <div class="qa-section-label">✨ Code Tasks</div>
+    <div class="qa-grid">
+      <button class="qa-btn" data-template="Explain what this code does step by step:" data-icon="🔍">Explain</button>
+      <button class="qa-btn" data-template="Find and fix the bugs in this code. Explain what was wrong:" data-icon="🐛">Fix Bugs</button>
+      <button class="qa-btn" data-template="Write comprehensive unit tests for this code:" data-icon="🧪">Write Tests</button>
+      <button class="qa-btn" data-template="Refactor this code to be cleaner and more maintainable:" data-icon="🔧">Refactor</button>
+      <button class="qa-btn" data-template="Review this code for bugs, security issues, and improvements:" data-icon="👀">Review</button>
+      <button class="qa-btn" data-template="Generate clear documentation/JSDoc comments for this code:" data-icon="📝">Add Docs</button>
+      <button class="qa-btn" data-template="Generate a conventional commits style git commit message for these changes:" data-icon="💾">Commit Msg</button>
+      <button class="qa-btn" data-template="Optimize this code for better performance and explain the changes:" data-icon="⚡">Optimize</button>
+    </div>
+    <div class="qa-section-label" style="margin-top:6px">📁 Project Tasks</div>
+    <div class="qa-grid">
+      <button class="qa-btn" data-template="Create a plan to implement this feature step by step:" data-icon="🗺">Plan Feature</button>
+      <button class="qa-btn" data-template="Add error handling and input validation to this code:" data-icon="🛡">Add Guards</button>
+      <button class="qa-btn" data-template="Convert this code to TypeScript with proper types:" data-icon="🔷">To TypeScript</button>
+      <button class="qa-btn" data-template="List all TODO comments in the codebase and suggest fixes:" data-icon="✅">Fix TODOs</button>
+    </div>
   </div>
 
   <!-- Search bar (hidden until Ctrl+F) -->
@@ -196,6 +227,10 @@
           <div class="example-prompt" id="ex-w-2">fix the bug in server.js</div>
           <div class="example-prompt" id="ex-w-3">write unit tests for utils.ts</div>
         </div>
+        <div id="welcome-recent" style="display:none">
+          <div class="welcome-section-label">Recent conversations</div>
+          <div id="welcome-recent-list"></div>
+        </div>
       </div><!-- /#welcome-normal -->
 
     </div><!-- /#welcome -->
@@ -228,6 +263,14 @@
             <path d="M11 1l2 2"/>
           </svg>
         </button>
+        <button class="input-btn" id="active-file-btn" title="Add currently open editor file to context">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M4 2h6l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"/>
+            <path d="M9 2v4h4"/>
+            <line x1="6" y1="9" x2="10" y2="9"/>
+            <line x1="8" y1="7" x2="8" y2="11"/>
+          </svg>
+        </button>
         <button id="stop-btn" title="Stop generation">■ Stop</button>
         <button id="send-btn" title="Send (Enter)">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -240,8 +283,10 @@
     <div id="input-hints">
       <span><span class="hint-key">Enter</span> send</span>
       <span><span class="hint-key">Shift+Enter</span> newline</span>
+      <span><span class="hint-key">Ctrl+L</span> focus</span>
       <span><span class="hint-key">Esc</span> stop</span>
       <span><span class="hint-key">@</span> add file</span>
+      <span id="char-count" class="char-count-hint"></span>
     </div>
   </div>
 
@@ -250,7 +295,9 @@
     <span class="stat-item"><span class="dot"></span> <span id="stats-model">—</span></span>
     <span class="stat-item">🪙 <span id="stats-tokens">0</span> tk</span>
     <span class="stat-item"><span id="stats-cost">$0.0000</span></span>
+    <span class="stat-item" id="stats-msgs-item">💬 <span id="stats-msgs">0</span></span>
     <div class="stat-spacer"></div>
+    <span class="stat-item" id="stats-speed-item" style="display:none">⚡ <span id="stats-speed">0</span> t/s</span>
     <span class="stat-item">⏱ <span id="stats-time">0s</span></span>
   </div>
 
@@ -274,6 +321,9 @@
     <span id="history-panel-title">Chat History</span>
     <div style="flex:1"></div>
     <button class="header-btn" id="history-close-btn" title="Close history">✕</button>
+  </div>
+  <div id="history-search-bar">
+    <input id="history-search" type="text" placeholder="Filter conversations…" autocomplete="off" spellcheck="false">
   </div>
   <div id="history-list"></div>
   <div id="history-session-view"></div>

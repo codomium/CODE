@@ -32,6 +32,40 @@
     let lastUserMessage = '';    // for ↑ recall and regenerate
     let autoScroll = true;       // auto-scroll while streaming
     let pinnedFiles = [];        // files pinned across sessions
+    let currentSessionId = null; // null for new sessions; history entry ID when continuing a saved session
+    let currentSessionTitle = ''; // first-message snippet shown in header
+    let allHistorySessions = []; // full session list for filtering + welcome screen
+    let historyFilterQuery = ''; // active search filter in history panel
+    let streamStartTime = 0;     // timestamp when first stream token arrived
+    let streamOutputChars = 0;   // approx output chars during current stream (for t/s)
+    let lastStreamTps = 0;       // final t/s from last completed stream
+
+    /** Max characters shown in the header session-title indicator */
+    const SESSION_TITLE_DISPLAY_LENGTH = 55;
+
+    /** Rough approximation: characters per token for streaming speed calculation */
+    const CHARS_PER_TOKEN_ESTIMATE = 4;
+
+    /** Minimum input characters before the char-count hint is shown */
+    const CHAR_COUNT_MIN_DISPLAY = 50;
+
+    /** Input characters at which the count turns warning color */
+    const CHAR_COUNT_WARNING_THRESHOLD = 3000;
+
+    /** Interval (approx chars) between loading-text speed updates during streaming */
+    const STREAM_UPDATE_THROTTLE_CHARS = 80;
+
+    /** Plain-English descriptions for each permission mode (shown in mode-desc-bar) */
+    const MODE_DESCRIPTIONS = {
+        default:           'Asks permission before making file edits or running commands — safest choice',
+        auto:              'Approves safe read operations automatically; asks for writes and commands',
+        plan:              'Read-only planning mode: analyzes code without making any changes',
+        acceptEdits:       'Automatically applies all file edits without asking — fast but careful',
+        bypassPermissions: '⚠ Skips all permission checks — full automation, use with care',
+    };
+
+    /** Keywords that indicate a retryable rate-limit/overload error in the UI */
+    const RATE_LIMIT_PATTERN = /rate.?limit|overload|too.?many.?request|capacity|529|503|quota/i;
 
     // ── DOM refs ─────────────────────────────────────────────────────────────
     const messagesEl   = document.getElementById('messages');
@@ -80,6 +114,20 @@
     const contextUsedEl  = document.getElementById('context-used');
     const contextMaxEl   = document.getElementById('context-max');
     const contextFillEl  = document.getElementById('context-bar-fill');
+    const sessionIndicator  = document.getElementById('session-indicator');
+    const historySearch     = document.getElementById('history-search');
+    const historySearchBar  = document.getElementById('history-search-bar');
+    const welcomeRecentEl   = document.getElementById('welcome-recent');
+    const welcomeRecentList = document.getElementById('welcome-recent-list');
+    const activeFileBtn     = document.getElementById('active-file-btn');
+    const statsSpeedItem    = document.getElementById('stats-speed-item');
+    const statsSpeedEl      = document.getElementById('stats-speed');
+    const statsMsgsEl       = document.getElementById('stats-msgs');
+    const charCountEl       = document.getElementById('char-count');
+    const actionsBtn        = document.getElementById('actions-btn');
+    const quickActionsPanel = document.getElementById('quick-actions');
+    const modeDescBar       = document.getElementById('mode-desc-bar');
+    const modeDescText      = document.getElementById('mode-desc-text');
 
     /** Models that support NVIDIA thinking mode toggle */
     const THINKING_CAPABLE_MODELS = new Set([
@@ -103,6 +151,18 @@
         'mistralai/mistral-large-2-instruct':          128000,
         'mistralai/mixtral-8x22b-instruct-v0.1':        64000,
     };
+
+    // ── Session indicator (header title) ─────────────────────────────────────
+    function updateSessionIndicator() {
+        if (!sessionIndicator) return;
+        if (currentSessionTitle) {
+            sessionIndicator.textContent = '— ' + currentSessionTitle;
+            sessionIndicator.title = currentSessionTitle;
+        } else {
+            sessionIndicator.textContent = '';
+            sessionIndicator.title = '';
+        }
+    }
 
     // ── Tick elapsed time ────────────────────────────────────────────────────
     setInterval(() => {
@@ -378,22 +438,36 @@
     // Store code by ID to avoid large data attributes and XSS risks
     const codeStore = new Map();
 
+    /** Languages whose code can be sent directly to the integrated terminal */
+    const RUNNABLE_LANGS = new Set(['sh', 'bash', 'shell', 'zsh', 'cmd', 'batch', 'powershell', 'ps1']);
+
     function buildCodeBlockHtml(code, lang) {
         const id = `cb-${++codeBlockIdCounter}`;
         const highlighted = highlightCode(code, lang);
         const displayLang = lang || 'code';
         // Store code in JS Map, not in DOM attribute
         codeStore.set(id, { code, language: lang || '' });
-        // Use data-block-id for event delegation; no inline onclick
+        const isRunnable = RUNNABLE_LANGS.has((lang || '').toLowerCase());
+        const runBtnHtml = isRunnable
+            ? `<button class="code-btn run-btn" data-action="run" data-block-id="${id}" title="Run in integrated terminal">▷ Run</button>`
+            : '';
+
+        // Wrap each line in a <span class="line"> for CSS line numbers
+        const rawLines = highlighted.split('\n');
+        // Remove a single trailing empty line artifact from split
+        if (rawLines.length > 1 && rawLines[rawLines.length - 1] === '') rawLines.pop();
+        const numberedCode = rawLines.map(l => `<span class="line">${l}</span>`).join('\n');
+
         return `<div class="code-block" id="${id}" data-block-id="${id}" data-lang="${escapeHtml(lang || '')}">
   <div class="code-header">
     <span class="code-lang">${escapeHtml(displayLang)}</span>
     <div class="code-actions">
+      ${runBtnHtml}<button class="code-btn wrap-btn" data-action="wrap" data-block-id="${id}" title="Toggle word wrap">↔</button>
       <button class="code-btn copy-btn" data-action="copy" data-block-id="${id}">Copy</button>
       <button class="code-btn apply-btn" data-action="apply" data-block-id="${id}">Apply to file…</button>
     </div>
   </div>
-  <pre><code>${highlighted}</code></pre>
+  <pre><code>${numberedCode}</code></pre>
 </div>`;
     }
 
@@ -418,6 +492,20 @@
             // Show preview immediately; diff will arrive when extension reads active file
             showApplyModal(entry.code, null, null);
             vscode.postMessage({ type: 'getActiveFileContent' });
+        } else if (action === 'run') {
+            const entry = codeStore.get(blockId);
+            if (!entry) return;
+            vscode.postMessage({ type: 'runInTerminal', code: entry.code });
+            btn.textContent = '✓ Sent';
+            setTimeout(() => { btn.textContent = '▷ Run'; }, 1500);
+        } else if (action === 'wrap') {
+            const block = document.getElementById(blockId);
+            if (!block) return;
+            const pre = block.querySelector('pre');
+            if (!pre) return;
+            const isWrapped = pre.classList.toggle('wrapped');
+            btn.classList.toggle('active', isWrapped);
+            btn.title = isWrapped ? 'Word wrap: on (click to disable)' : 'Toggle word wrap';
         }
     });
 
@@ -564,6 +652,20 @@
             });
             header.appendChild(regenBtn);
         }
+
+        // "Continue" button — sends a follow-up that asks the model to keep going.
+        // Useful when the model stops mid-task (e.g. max turns reached).
+        const continueBtn = document.createElement('button');
+        continueBtn.className = 'msg-continue-btn';
+        continueBtn.title = 'Ask the model to continue from here';
+        continueBtn.textContent = '▶ Continue';
+        continueBtn.addEventListener('click', () => {
+            if (isLoading) return;
+            setSending(true);
+            setLoading(true, 'Thinking…');
+            vscode.postMessage({ type: 'send', message: 'Please continue from where you left off.', contextFiles: [], fileRefs: [] });
+        });
+        header.appendChild(continueBtn);
     }
 
     // ── Message rendering ─────────────────────────────────────────────────────
@@ -584,6 +686,11 @@
         hideWelcome();
         currentStreamMsg = null;
         lastUserMessage = text;
+        // Derive session title from the first user message
+        if (sessionMessages.length === 0 && text.trim()) {
+            currentSessionTitle = text.trim().slice(0, SESSION_TITLE_DISPLAY_LENGTH).replace(/\n/g, ' ');
+            updateSessionIndicator();
+        }
         sessionMessages.push({ type: 'user', text });
 
         const div = document.createElement('div');
@@ -601,6 +708,22 @@
         editBtn.addEventListener('click', () => editUserMessage(div, text));
         meta.appendChild(editBtn);
 
+        const copyUserBtn = document.createElement('button');
+        copyUserBtn.className = 'msg-user-copy-btn';
+        copyUserBtn.title = 'Copy message';
+        copyUserBtn.textContent = '⎘';
+        copyUserBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'copyToClipboard', text });
+            copyUserBtn.textContent = '✓';
+            setTimeout(() => { copyUserBtn.textContent = '⎘'; }, 1500);
+        });
+        meta.appendChild(copyUserBtn);
+
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'msg-time';
+        timeSpan.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        meta.appendChild(timeSpan);
+
         const bubble = document.createElement('div');
         bubble.className = 'msg-bubble';
         bubble.textContent = text;   // safe — textContent
@@ -617,10 +740,12 @@
         const div = document.createElement('div');
         div.className = 'msg msg-assistant';
         div._regenPrompt = lastUserMessage;    // capture for regenerate
+        const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         div.innerHTML = `
             <div class="msg-header">
                 <div class="msg-avatar">✦</div>
                 <span class="msg-name">Claude</span>
+                <span class="msg-time">${escapeHtml(ts)}</span>
             </div>
             <div class="msg-content streaming-cursor"></div>
         `;
@@ -634,6 +759,17 @@
         const el = getOrCreateAssistantMessage();
         // Accumulate raw text on element, re-render markdown periodically
         el._rawText = (el._rawText || '') + text;
+
+        // Track streaming speed
+        if (!streamStartTime) streamStartTime = Date.now();
+        streamOutputChars += text.length;
+        // Update loading label roughly every STREAM_UPDATE_THROTTLE_CHARS to avoid too many DOM writes
+        if (streamOutputChars % STREAM_UPDATE_THROTTLE_CHARS < text.length) {
+            const elapsed = (Date.now() - streamStartTime) / 1000;
+            const tps = elapsed > 0.5 ? Math.round(streamOutputChars / CHARS_PER_TOKEN_ESTIMATE / elapsed) : 0;
+            if (tps > 0) setLoading(true, `Generating… (${tps} t/s)`);
+        }
+
         // Throttle rendering to avoid layout thrashing
         if (!el._renderPending) {
             el._renderPending = true;
@@ -649,6 +785,19 @@
     }
 
     function finalizeAssistantMessage(content) {
+        // Compute and record final streaming speed
+        if (streamStartTime && streamOutputChars > 0) {
+            const elapsed = (Date.now() - streamStartTime) / 1000;
+            lastStreamTps = elapsed > 0.1 ? Math.round(streamOutputChars / CHARS_PER_TOKEN_ESTIMATE / elapsed) : 0;
+        }
+        streamStartTime = 0;
+        streamOutputChars = 0;
+        // Show speed in stats bar
+        if (statsSpeedItem && statsSpeedEl && lastStreamTps > 0) {
+            statsSpeedEl.textContent = lastStreamTps;
+            statsSpeedItem.style.display = '';
+        }
+
         if (currentStreamMsg) {
             const raw = currentStreamMsg._rawText || content || '';
             currentStreamMsg.innerHTML = raw ? renderMarkdown(raw) : '';
@@ -819,7 +968,31 @@
         currentStreamMsg = null;
         const div = document.createElement('div');
         div.className = 'msg msg-error';
-        div.innerHTML = `<div class="msg-bubble">⚠ ${escapeHtml(text)}</div>`;
+
+        const bubble = document.createElement('div');
+        bubble.className = 'msg-bubble';
+        bubble.textContent = '⚠ ' + text;    // safe — textContent
+
+        div.appendChild(bubble);
+
+        // Always show a retry row so the user can manually retry after any error
+        const actionsRow = document.createElement('div');
+        actionsRow.className = 'msg-error-actions';
+
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'msg-retry-btn';
+        retryBtn.textContent = '↩ Retry';
+        retryBtn.title = 'Re-send the last message';
+        retryBtn.addEventListener('click', () => {
+            if (isLoading || !lastUserMessage) return;
+            div.remove();
+            setSending(true);
+            setLoading(true, 'Thinking…');
+            vscode.postMessage({ type: 'send', message: lastUserMessage, contextFiles: [], fileRefs: [] });
+        });
+        actionsRow.appendChild(retryBtn);
+        div.appendChild(actionsRow);
+
         messagesEl.appendChild(div);
         scrollToBottom();
     }
@@ -1030,6 +1203,14 @@
             e.preventDefault();
             showSearchBar();
         }
+        // Ctrl+L — focus the chat input (standard AI IDE shortcut)
+        if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+            e.preventDefault();
+            if (inputEl) {
+                inputEl.focus();
+                inputEl.select();
+            }
+        }
     });
     window.addEventListener('message', (event) => {
         const msg = event.data;
@@ -1076,10 +1257,25 @@
                 setSending(false);
                 break;
 
+            case 'retrying':
+                // Rate-limit auto-retry: show countdown in loading indicator
+                setLoading(true, `⏳ Rate limited — retrying in ${msg.delaySeconds}s (attempt ${msg.attempt}/${msg.maxAttempts})…`);
+                break;
+
             case 'stop':
                 finalizeAssistantMessage(null);
                 setLoading(false);
                 setSending(false);
+                // Auto-save current session after every response so VS Code restarts
+                // don't lose the conversation (Cursor/Claude-style session memory).
+                if (sessionMessages.length > 0) {
+                    vscode.postMessage({ type: 'autoSaveSession', messages: [...sessionMessages], sessionId: currentSessionId });
+                    if (currentSessionId) {
+                        // Also update the history entry so it stays current when the
+                        // user opens the history panel without clicking "New" first.
+                        vscode.postMessage({ type: 'updateSession', id: currentSessionId, messages: [...sessionMessages] });
+                    }
+                }
                 break;
 
             case 'tokenUpdate':
@@ -1103,22 +1299,44 @@
                 currentStreamMsg = null;
                 activeToolCards = {};
                 sessionMessages = [];
+                currentSessionId = null;
+                currentSessionTitle = '';
+                updateSessionIndicator();
                 tokenStats = { input: 0, output: 0 };
                 costTotal = 0;
                 startTime = Date.now();
+                streamStartTime = 0;
+                streamOutputChars = 0;
+                lastStreamTps = 0;
+                if (statsSpeedItem) statsSpeedItem.style.display = 'none';
                 // Restore pinned files into context
                 contextFiles = pinnedFiles.map(f => ({ ...f, pinned: true }));
                 renderContextFiles();
                 updateStats();
                 updateContextBar();
+                // Clear the auto-saved active session
+                vscode.postMessage({ type: 'autoSaveSession', messages: [] });
+                // Refresh recent sessions for the newly-visible welcome screen
+                if (allHistorySessions.length > 0) {
+                    updateWelcomeRecentSessions(allHistorySessions);
+                } else {
+                    vscode.postMessage({ type: 'getHistory' });
+                }
                 break;
 
             case 'historyData':
-                renderHistoryList(msg.sessions || []);
+                allHistorySessions = msg.sessions || [];
+                renderHistoryList(allHistorySessions, historyFilterQuery);
+                updateWelcomeRecentSessions(allHistorySessions);
                 break;
 
             case 'sessionData':
-                renderHistorySession(msg.messages || []);
+                renderHistorySession(msg.messages || [], msg.id || null);
+                break;
+
+            case 'resumeFromHistoryData':
+                // Direct-resume (Cursor-style): triggered when user clicks a history item
+                restoreSessionMessages(msg.messages || [], msg.id || null);
                 break;
 
             case 'fileContent':
@@ -1163,7 +1381,12 @@
                 syncThinkingToggleVisibility(currentModel);
                 updateStats();
                 updateContextBar();
-                showWelcome(!!msg.hasApiKey);
+                // Restore active session if one was persisted (survives VS Code restarts)
+                if (msg.activeSession && msg.activeSession.length > 0) {
+                    restoreSessionMessages(msg.activeSession, msg.activeSessionId || null);
+                } else {
+                    showWelcome(!!msg.hasApiKey);
+                }
                 // Load pinned files from settings
                 vscode.postMessage({ type: 'getPinnedFiles' });
                 break;
@@ -1186,9 +1409,57 @@
         if (hasKey) {
             setupGuideEl.style.display = 'none';
             welcomeNormalEl.style.display = 'flex';
+            // Pre-populate recent sessions if already loaded; otherwise fetch
+            if (allHistorySessions.length > 0) {
+                updateWelcomeRecentSessions(allHistorySessions);
+            } else {
+                vscode.postMessage({ type: 'getHistory' });
+            }
         } else {
             setupGuideEl.style.display = 'flex';
             welcomeNormalEl.style.display = 'none';
+            if (welcomeRecentEl) welcomeRecentEl.style.display = 'none';
+        }
+    }
+
+    /**
+     * Render the top-3 most recent sessions on the welcome screen so users can
+     * instantly resume a conversation without opening the history panel.
+     */
+    function updateWelcomeRecentSessions(sessions) {
+        if (!welcomeRecentEl || !welcomeRecentList) return;
+        // Only show when the welcome screen is actually visible
+        if (!welcomeEl || welcomeEl.classList.contains('hidden')) {
+            welcomeRecentEl.style.display = 'none';
+            return;
+        }
+        const recent = sessions.slice(0, 3);
+        if (recent.length === 0) {
+            welcomeRecentEl.style.display = 'none';
+            return;
+        }
+        welcomeRecentEl.style.display = '';
+        welcomeRecentList.innerHTML = '';
+        for (const s of recent) {
+            const item = document.createElement('button');
+            item.className = 'welcome-recent-item';
+
+            const titleDiv = document.createElement('div');
+            titleDiv.className = 'welcome-recent-title';
+            titleDiv.textContent = s.title || 'Untitled conversation';
+
+            const metaDiv = document.createElement('div');
+            metaDiv.className = 'welcome-recent-meta';
+            const date = new Date(s.createdAt);
+            const msgCount = s.messageCount || 0;
+            metaDiv.textContent = `${date.toLocaleDateString()} · ${msgCount} msg${msgCount !== 1 ? 's' : ''}`;
+
+            item.appendChild(titleDiv);
+            item.appendChild(metaDiv);
+            item.addEventListener('click', () => {
+                vscode.postMessage({ type: 'resumeFromHistory', id: s.id });
+            });
+            welcomeRecentList.appendChild(item);
         }
     }
 
@@ -1256,6 +1527,11 @@
             statsCost.textContent = costTotal < 0.01
                 ? `$${costTotal.toFixed(4)}`
                 : `$${costTotal.toFixed(3)}`;
+        }
+        if (statsMsgsEl) {
+            // Count completed user-assistant exchange pairs (floor division)
+            const msgs = Math.floor(sessionMessages.length / 2);
+            statsMsgsEl.textContent = msgs > 0 ? String(msgs) : '0';
         }
     }
 
@@ -1326,6 +1602,18 @@
             // Auto-resize
             inputEl.style.height = 'auto';
             inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+
+            // Character count hint
+            if (charCountEl) {
+                const len = inputEl.value.length;
+                if (len > CHAR_COUNT_MIN_DISPLAY) {
+                    charCountEl.textContent = len >= 1000 ? `${(len/1000).toFixed(1)}k chars` : `${len} chars`;
+                    charCountEl.classList.toggle('warn', len > CHAR_COUNT_WARNING_THRESHOLD);
+                } else {
+                    charCountEl.textContent = '';
+                    charCountEl.classList.remove('warn');
+                }
+            }
 
             const val = inputEl.value;
             const cursorPos = inputEl.selectionStart;
@@ -1445,6 +1733,46 @@
         });
     }
 
+    // ── Quick Actions toggle ───────────────────────────────────────────────────
+    if (actionsBtn && quickActionsPanel) {
+        actionsBtn.addEventListener('click', () => {
+            const visible = quickActionsPanel.style.display !== 'none';
+            quickActionsPanel.style.display = visible ? 'none' : '';
+            actionsBtn.classList.toggle('active', !visible);
+        });
+        // Wire each quick-action button → fill input with template
+        quickActionsPanel.querySelectorAll('.qa-btn').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const template = btn.dataset.template || '';
+                if (!template || !inputEl) return;
+                inputEl.value = template + '\n';
+                inputEl.style.height = 'auto';
+                inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+                inputEl.focus();
+                inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+                // Collapse the panel after selecting to give the user more space
+                quickActionsPanel.style.display = 'none';
+                actionsBtn.classList.remove('active');
+            });
+        });
+    }
+
+    // ── Mode description bar ─────────────────────────────────────────────────
+    let modeDescTimeout = null;
+    function showModeDesc(mode) {
+        const desc = MODE_DESCRIPTIONS[mode];
+        if (!modeDescBar || !modeDescText || !desc) return;
+        modeDescText.textContent = desc;
+        modeDescBar.style.display = '';
+        clearTimeout(modeDescTimeout);
+        modeDescTimeout = setTimeout(() => {
+            if (modeDescBar) modeDescBar.style.display = 'none';
+        }, 5000);
+    }
+    if (modeSelect) {
+        modeSelect.addEventListener('change', () => showModeDesc(modeSelect.value));
+    }
+
     function submitMessage() {
         if (!inputEl) return;
         const rawText = inputEl.value.trim();
@@ -1488,11 +1816,20 @@
 
     // ── Slash command autocomplete ─────────────────────────────────────────────
     const SLASH_COMMANDS = [
-        { cmd: '/clear',  desc: 'Clear conversation and start fresh' },
-        { cmd: '/model',  desc: 'Switch AI model' },
-        { cmd: '/export', desc: 'Export conversation as Markdown' },
-        { cmd: '/help',   desc: 'Show keyboard shortcuts' },
-        { cmd: '/pin',    desc: 'Pin all current context files to every session' },
+        { cmd: '/clear',    desc: 'Clear conversation and start fresh' },
+        { cmd: '/new',      desc: 'Start a new conversation (alias for /clear)' },
+        { cmd: '/model',    desc: 'Switch AI model' },
+        { cmd: '/export',   desc: 'Export conversation as Markdown' },
+        { cmd: '/help',     desc: 'Show keyboard shortcuts' },
+        { cmd: '/pin',      desc: 'Pin all current context files to every session' },
+        { cmd: '/explain',  desc: 'Explain the code/file in context',      template: 'Explain what this code does in simple terms:' },
+        { cmd: '/fix',      desc: 'Find and fix bugs',                      template: 'Find and fix the bugs in this code. Explain what was wrong:' },
+        { cmd: '/refactor', desc: 'Refactor for clarity and maintainability', template: 'Refactor this code to be cleaner and more maintainable:' },
+        { cmd: '/test',     desc: 'Write unit tests',                       template: 'Write comprehensive unit tests for this code:' },
+        { cmd: '/review',   desc: 'Code review for bugs and improvements',  template: 'Review this code for potential bugs, security issues, and improvements:' },
+        { cmd: '/docs',     desc: 'Generate documentation comments',        template: 'Generate clear documentation/JSDoc comments for this code:' },
+        { cmd: '/commit',   desc: 'Generate a git commit message',          template: 'Generate a concise git commit message (conventional commits style) for these changes:' },
+        { cmd: '/optimize', desc: 'Optimize code for performance',          template: 'Optimize this code for better performance and explain the changes:' },
     ];
 
     function showSlashCommands(prefix) {
@@ -1521,8 +1858,21 @@
     }
 
     function executeSlashCommand(cmd) {
+        // Check for template commands first
+        const slashEntry = SLASH_COMMANDS.find(c => c.cmd === cmd);
+        if (slashEntry && slashEntry.template) {
+            if (inputEl) {
+                inputEl.value = slashEntry.template + '\n';
+                inputEl.style.height = 'auto';
+                inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+                inputEl.focus();
+                inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+            }
+            return;
+        }
         switch (cmd) {
-            case '/clear':   newChatBtn && newChatBtn.click(); break;
+            case '/clear':
+            case '/new':   newChatBtn && newChatBtn.click(); break;
             case '/model':   modelSelect && modelSelect.focus(); break;
             case '/export':  exportBtn && exportBtn.click(); break;
             case '/pin':     contextFiles.filter(f => !f.pinned).forEach(f => togglePinFile(f)); break;
@@ -1530,7 +1880,8 @@
                 addSystemMessage(
                     'Keyboard shortcuts: Enter=send · Shift+Enter=newline · @=add file · ' +
                     '@codebase=full codebase · /=commands · ↑=recall last message · ' +
-                    'Ctrl+F=search · Ctrl+K=inline edit · Esc=stop'
+                    'Ctrl+L=focus input · Ctrl+F=search · Ctrl+K=inline edit · Esc=stop\n\n' +
+                    'Template commands: /explain · /fix · /refactor · /test · /review · /docs · /commit · /optimize'
                 );
                 break;
         }
@@ -1599,12 +1950,77 @@
     }
 
     // ── History Panel ─────────────────────────────────────────────────────────
+    /**
+     * Persist the current in-progress session before switching to another one.
+     * - If we're continuing a history session, update that entry (no duplicate).
+     * - If this is a fresh session, create a new history entry.
+     */
+    function saveCurrentSessionIfNeeded() {
+        if (sessionMessages.length === 0) return;
+        if (currentSessionId) {
+            vscode.postMessage({ type: 'updateSession', id: currentSessionId, messages: [...sessionMessages] });
+        } else {
+            vscode.postMessage({ type: 'saveSession', messages: [...sessionMessages] });
+        }
+    }
+
+    /**
+     * Restore a set of saved messages into the main chat panel and re-inject them
+     * into the agent bridge, so the model remembers the full conversation context
+     * (Cursor/Claude-style session memory).
+     *
+     * @param {Array}       messages  - saved user/assistant message objects
+     * @param {string|null} sessionId - history entry ID being continued; null for a new session
+     */
+    function restoreSessionMessages(messages, sessionId) {
+        // Track which history session we are editing so we update it (not duplicate it)
+        currentSessionId = sessionId !== undefined ? sessionId : null;
+
+        // Derive header title from the first user message in this session
+        const firstUser = messages.find(m => m.type === 'user');
+        currentSessionTitle = firstUser ? firstUser.text.trim().slice(0, SESSION_TITLE_DISPLAY_LENGTH).replace(/\n/g, ' ') : '';
+        updateSessionIndicator();
+
+        // Clear current UI state
+        messagesEl.innerHTML = '';
+        sessionMessages = [];
+        activeToolCards = {};
+        tokenStats = { input: 0, output: 0 };
+        costTotal = 0;
+        startTime = Date.now();
+        updateStats();
+        updateContextBar();
+
+        if (messages.length === 0) {
+            showWelcome(true);
+            return;
+        }
+
+        // Replay messages into the DOM (addUserMessage / finalizeAssistantMessage
+        // only touch the DOM and sessionMessages — they do not send to the bridge)
+        for (const m of messages) {
+            if (m.type === 'user') {
+                addUserMessage(m.text);
+            } else if (m.type === 'assistant') {
+                finalizeAssistantMessage(m.text);
+            }
+        }
+
+        // Re-inject the conversation history into the agent bridge so the next
+        // user message is answered with full knowledge of the entire session.
+        vscode.postMessage({ type: 'resumeSession', messages });
+    }
+
     function openHistoryPanel() {
         if (historyPanel) historyPanel.classList.add('visible');
         if (historySessionView) historySessionView.classList.remove('visible');
         if (historyList) historyList.style.display = '';
         if (historyBackBtn) historyBackBtn.style.display = 'none';
         if (historyPanelTitle) historyPanelTitle.textContent = 'Chat History';
+        if (historySearchBar) historySearchBar.classList.remove('hidden');
+        // Reset search when panel opens
+        if (historySearch) historySearch.value = '';
+        historyFilterQuery = '';
         vscode.postMessage({ type: 'getHistory' });
     }
 
@@ -1612,19 +2028,25 @@
         if (historyPanel) historyPanel.classList.remove('visible');
     }
 
-    function renderHistoryList(sessions) {
+    function renderHistoryList(sessions, filter) {
         if (!historyList) return;
         historyList.innerHTML = '';
-        if (sessions.length === 0) {
+        const lFilter = (filter || '').toLowerCase().trim();
+        const displayed = lFilter
+            ? sessions.filter(s => (s.title || '').toLowerCase().includes(lFilter))
+            : sessions;
+        if (displayed.length === 0) {
             const empty = document.createElement('div');
             empty.className = 'history-empty';
-            empty.textContent = 'No saved conversations yet.\nStart a new chat and click "New" to save it to history.';
+            empty.textContent = lFilter
+                ? 'No conversations match your search.'
+                : 'No saved conversations yet.\nStart a new chat and click "New" to save it to history.';
             historyList.appendChild(empty);
             return;
         }
-        for (const session of sessions) {
+        for (const session of displayed) {
             const item = document.createElement('div');
-            item.className = 'history-item';
+            item.className = 'history-item' + (session.id === currentSessionId ? ' active' : '');
 
             const titleEl = document.createElement('div');
             titleEl.className = 'history-item-title';
@@ -1672,16 +2094,44 @@
             item.appendChild(titleEl);
             item.appendChild(metaEl);
             item.appendChild(actionsEl);
+            // Cursor/Claude-style: clicking a session immediately switches to it.
+            // The current session is auto-saved before switching so nothing is lost.
             item.addEventListener('click', () => {
-                vscode.postMessage({ type: 'loadSession', id: session.id });
+                saveCurrentSessionIfNeeded();
+                closeHistoryPanel();
+                vscode.postMessage({ type: 'resumeFromHistory', id: session.id });
             });
             historyList.appendChild(item);
         }
     }
 
-    function renderHistorySession(messages) {
+    let historyViewMessages = []; // messages of the session currently shown in history panel
+    let historyViewSessionId = null; // ID of that session
+
+    function renderHistorySession(messages, sessionId) {
         if (!historySessionView) return;
+        historyViewMessages = messages;
+        historyViewSessionId = sessionId || null;
         historySessionView.innerHTML = '';
+
+        // ── Resume button ────────────────────────────────────────────────────
+        if (messages.length > 0) {
+            const resumeBar = document.createElement('div');
+            resumeBar.className = 'history-resume-bar';
+
+            const resumeBtn = document.createElement('button');
+            resumeBtn.className = 'history-resume-btn';
+            resumeBtn.textContent = '▶ Continue this conversation';
+            resumeBtn.title = 'Switch to this conversation — the model will remember everything from the beginning';
+            resumeBtn.addEventListener('click', () => {
+                saveCurrentSessionIfNeeded();
+                closeHistoryPanel();
+                restoreSessionMessages(historyViewMessages, historyViewSessionId);
+            });
+
+            resumeBar.appendChild(resumeBtn);
+            historySessionView.appendChild(resumeBar);
+        }
 
         for (const m of messages) {
             if (m.type === 'user') {
@@ -1712,27 +2162,43 @@
         historySessionView.classList.add('visible');
         if (historyBackBtn) historyBackBtn.style.display = '';
         if (historyPanelTitle) historyPanelTitle.textContent = 'Past Conversation';
+        if (historySearchBar) historySearchBar.classList.add('hidden');
         historySessionView.scrollTop = 0;
     }
 
     if (historyBtn) historyBtn.addEventListener('click', openHistoryPanel);
     if (historyCloseBtn) historyCloseBtn.addEventListener('click', closeHistoryPanel);
+
+    // Filter history list as user types
+    if (historySearch) {
+        historySearch.addEventListener('input', () => {
+            historyFilterQuery = historySearch.value.trim();
+            renderHistoryList(allHistorySessions, historyFilterQuery);
+        });
+        historySearch.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                historySearch.value = '';
+                historyFilterQuery = '';
+                renderHistoryList(allHistorySessions, '');
+            }
+        });
+    }
     if (historyBackBtn) {
         historyBackBtn.addEventListener('click', () => {
             if (historySessionView) historySessionView.classList.remove('visible');
             if (historyList) historyList.style.display = '';
             if (historyBackBtn) historyBackBtn.style.display = 'none';
             if (historyPanelTitle) historyPanelTitle.textContent = 'Chat History';
+            if (historySearchBar) historySearchBar.classList.remove('hidden');
         });
     }
 
     // ── Toolbar buttons ───────────────────────────────────────────────────────
     if (newChatBtn) {
         newChatBtn.addEventListener('click', () => {
-            if (sessionMessages.length > 0) {
-                vscode.postMessage({ type: 'saveSession', messages: [...sessionMessages] });
-                sessionMessages = [];
-            }
+            saveCurrentSessionIfNeeded();
+            sessionMessages = [];
+            currentSessionId = null;
             vscode.postMessage({ type: 'clear' });
             // Immediately restore pinned files for the new session
             contextFiles = pinnedFiles.map(f => ({ ...f, pinned: true }));
@@ -1743,6 +2209,12 @@
     if (addFileBtn) {
         addFileBtn.addEventListener('click', () => {
             vscode.postMessage({ type: 'pickFile' });
+        });
+    }
+
+    if (activeFileBtn) {
+        activeFileBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'addActiveFile' });
         });
     }
 
